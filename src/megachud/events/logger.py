@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -13,11 +13,26 @@ class EventLogger:
     """Single write path into the `events` table — every tool call, approval
     event, and evaluation goes through here, so nothing bypasses structured
     logging.
+
+    `on_event` is an optional synchronous callback fired after every commit
+    (e.g. Phase 2's TaskCompletionHandler, which generates a reflection and
+    memory entries on task_completed/task_failed). It's a plain callback
+    rather than a subscriber on the async EventBus so that it works
+    identically whether the caller is the FastAPI app (with a running event
+    loop) or a standalone script like scripts/run_dummy_task.py (with none)
+    — both go through this same log() method. Defaults to None so every
+    existing call site is unaffected.
     """
 
-    def __init__(self, session_factory: sessionmaker[Session], bus: EventBus) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        bus: EventBus,
+        on_event: Callable[[Event], None] | None = None,
+    ) -> None:
         self._session_factory = session_factory
         self._bus = bus
+        self._on_event = on_event
 
     def log(
         self,
@@ -64,4 +79,8 @@ class EventLogger:
                 "payload": payload or {},
             }
         )
+
+        if self._on_event is not None:
+            self._on_event(event)
+
         return event

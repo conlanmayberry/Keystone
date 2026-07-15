@@ -18,8 +18,12 @@ from megachud.evaluation.checks import check_python_syntax, check_tests_pass, ch
 from megachud.evaluation.engine import EvaluationEngine
 from megachud.events.bus import EventBus
 from megachud.events.logger import EventLogger
+from megachud.memory.store import MemoryStore
+from megachud.obsidian.vault import VaultWriter
 from megachud.orchestrator.approval_gate import ApprovalGate
 from megachud.orchestrator.engine import Orchestrator
+from megachud.reflection.engine import ReflectionEngine
+from megachud.reflection.handler import TaskCompletionHandler
 from megachud.tools.file_tools import ReadFileTool, WriteFileTool
 from megachud.tools.registry import ToolRegistry
 from megachud.tools.shell_tool import ShellExecTool
@@ -35,7 +39,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     session_factory = make_session_factory(engine)
 
     bus = EventBus()
-    event_logger = EventLogger(session_factory, bus)
+
+    reflection_engine = ReflectionEngine(session_factory)
+    memory_store = MemoryStore(session_factory, vector_dim=settings.memory.vector_dim)
+    vault_writer = VaultWriter(settings.vault_root)
+    completion_handler = TaskCompletionHandler(reflection_engine, memory_store, vault_writer)
+
+    event_logger = EventLogger(session_factory, bus, on_event=completion_handler)
 
     registry = ToolRegistry()
     registry.register(ReadFileTool(settings.workspace_root))
@@ -87,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.approval_gate = approval_gate
     app.state.orchestrator = orchestrator
     app.state.tool_registry = registry
+    app.state.memory_store = memory_store
     app.state.executor = ThreadPoolExecutor(max_workers=4)
 
     app.include_router(routes_tasks.router)
