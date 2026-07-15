@@ -1,0 +1,5 @@
+# Copy to config/local.yaml to override defaults locally (gitignored).
+# Example:
+# db_path: "./data/megachud.dev.db"
+# shell:
+#   timeout_seconds: 60
