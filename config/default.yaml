@@ -10,7 +10,9 @@ approval:
   poll_interval_seconds: 0.5
 
 shell:
-  allowlist: ["python", "pip", "pytest", "git", "dir", "type"]
+  # Real executables only — Windows cmd builtins (dir, type, etc.) can't run
+  # under shell=False, which we require for safety (no metacharacter injection).
+  allowlist: ["python", "pip", "pytest", "git"]
   denylist: ["rm", "del", "rd", "format", "shutdown", "git push", "git reset --hard", "git clean"]
   timeout_seconds: 120
 
