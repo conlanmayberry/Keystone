@@ -1,5 +1,6 @@
 workspace_root: "./workspace"
 db_path: "./data/megachud.db"
+vault_root: "./vault"
 
 api:
   host: "127.0.0.1"
@@ -21,3 +22,7 @@ evaluation:
 
 logging:
   level: "INFO"
+
+memory:
+  vector_dim: 512
+  default_top_k: 5

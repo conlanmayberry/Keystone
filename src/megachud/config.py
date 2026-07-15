@@ -36,14 +36,21 @@ class LoggingConfig(BaseModel):
     level: str = "INFO"
 
 
+class MemoryConfig(BaseModel):
+    vector_dim: int = 512
+    default_top_k: int = 5
+
+
 class Settings(BaseModel):
     workspace_root: Path
     db_path: Path
+    vault_root: Path
     api: ApiConfig = ApiConfig()
     approval: ApprovalConfig = ApprovalConfig()
     shell: ShellConfig = ShellConfig()
     evaluation: EvaluationConfig = EvaluationConfig()
     logging: LoggingConfig = LoggingConfig()
+    memory: MemoryConfig = MemoryConfig()
 
     @classmethod
     def load(
@@ -59,6 +66,7 @@ class Settings(BaseModel):
 
         data["workspace_root"] = _resolve_path(data["workspace_root"])
         data["db_path"] = _resolve_path(data["db_path"])
+        data["vault_root"] = _resolve_path(data["vault_root"])
 
         return cls(**data)
 
@@ -83,6 +91,7 @@ def _apply_env_overrides(data: dict[str, Any], prefix: str) -> dict[str, Any]:
     overrides = {
         "db_path": os.environ.get(f"{prefix}DB_PATH"),
         "workspace_root": os.environ.get(f"{prefix}WORKSPACE_ROOT"),
+        "vault_root": os.environ.get(f"{prefix}VAULT_ROOT"),
     }
     result = dict(data)
     for key, value in overrides.items():

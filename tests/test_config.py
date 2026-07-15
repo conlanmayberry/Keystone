@@ -14,13 +14,17 @@ def test_default_load_reads_repo_default_yaml():
     assert "rm" in settings.shell.denylist
     assert settings.workspace_root.name == "workspace"
     assert settings.db_path.name == "megachud.db"
+    assert settings.vault_root.name == "vault"
+    assert settings.memory.vector_dim == 512
 
 
 def test_local_override_takes_precedence(tmp_path, monkeypatch):
     default_path = tmp_path / "default.yaml"
     local_path = tmp_path / "local.yaml"
     default_path.write_text(
-        yaml.safe_dump({"workspace_root": "./workspace", "db_path": "./data/db.sqlite", "api": {"port": 8000}}),
+        yaml.safe_dump(
+            {"workspace_root": "./workspace", "db_path": "./data/db.sqlite", "vault_root": "./vault", "api": {"port": 8000}}
+        ),
         encoding="utf-8",
     )
     local_path.write_text(yaml.safe_dump({"api": {"port": 9999}}), encoding="utf-8")
@@ -33,7 +37,7 @@ def test_local_override_takes_precedence(tmp_path, monkeypatch):
 def test_env_override_takes_precedence_over_yaml(tmp_path, monkeypatch):
     default_path = tmp_path / "default.yaml"
     default_path.write_text(
-        yaml.safe_dump({"workspace_root": "./workspace", "db_path": "./data/db.sqlite"}),
+        yaml.safe_dump({"workspace_root": "./workspace", "db_path": "./data/db.sqlite", "vault_root": "./vault"}),
         encoding="utf-8",
     )
     monkeypatch.setenv("MEGACHUD_DB_PATH", str(tmp_path / "override.db"))

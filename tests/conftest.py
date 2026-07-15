@@ -15,10 +15,18 @@ def tmp_workspace(tmp_path):
 
 
 @pytest.fixture
-def test_settings(tmp_path, tmp_workspace) -> Settings:
+def tmp_vault(tmp_path):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    return vault
+
+
+@pytest.fixture
+def test_settings(tmp_path, tmp_workspace, tmp_vault) -> Settings:
     return Settings(
         workspace_root=tmp_workspace,
         db_path=tmp_path / "test.db",
+        vault_root=tmp_vault,
     )
 
 

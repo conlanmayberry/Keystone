@@ -9,6 +9,8 @@ data/*.db
 data/*.db-journal
 workspace/*
 !workspace/.gitkeep
+vault/*
+!vault/.gitkeep
 
 config/local.yaml
 .env
