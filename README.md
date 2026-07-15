@@ -1,15 +1,16 @@
 # MegaChud
 
 Self-improving autonomous AI operating system. This repo currently
-implements **Implementation Plan Phase 1** only: a reliable core
-(orchestrator, sandboxed tools, persistence, logging, evaluation, and a
-dashboard) that can complete simple coding tasks safely under human
-oversight. See the planning docs for the full picture:
+implements **Phase 1** (reliable core: orchestrator, sandboxed tools,
+persistence, logging, evaluation, dashboard) and **Phase 2** (memory:
+deterministic reflection, episodic/semantic/user memory, local semantic
+retrieval, and an Obsidian vault). See the planning docs for the full
+picture:
 
 - [Master_Specification.md](Master_Specification.md) — vision, design
   principles, and the full set of components the platform grows into.
 - [Implementation_Plan.md](Implementation_Plan.md) — the 5-phase roadmap.
-  This repo is Phase 1.
+  This repo covers Phases 1–2.
 - [Engineering_Standards.md](Engineering_Standards.md) — language,
   architecture, logging, and quality standards followed throughout.
 
@@ -46,11 +47,17 @@ has side effects — see the note in `src/megachud/api/app.py`):
 
 Then open http://127.0.0.1:8000. The dashboard lets you submit a task (a
 title, prompt, and an explicit JSON list of tool calls — there is no
-autonomous planner yet in Phase 1), watch the live activity feed over
-WebSocket, review task history, and approve/deny any pending
-`high_irreversible` tool calls.
+autonomous planner yet), watch the live activity feed over WebSocket,
+review task history, approve/deny any pending `high_irreversible` tool
+calls, and browse/search/add memory in the Memory Browser panel.
 
-## Smoke test without the dashboard
+Every completed task automatically generates a deterministic `Reflection`
+and one or more `MemoryEntry` rows, mirrored as Markdown notes under
+`vault/` — open that folder directly in the Obsidian app to browse them
+(frontmatter properties, `[[wikilinks]]` between a task and its memory,
+tag search).
+
+## Smoke tests without the dashboard
 
 ```
 .venv/Scripts/python scripts/run_dummy_task.py
@@ -60,14 +67,31 @@ Runs a real 2-step task end-to-end against the dev DB, plus a deliberate
 Python-syntax-error task to show the evaluation engine catching a bug that
 the tool call itself reported as "successful".
 
+```
+.venv/Scripts/python scripts/run_memory_demo.py record
+.venv/Scripts/python scripts/run_memory_demo.py recall
+```
+
+Run as two **separate process invocations** — proves memory recall
+survives a cold process, using only what's persisted to disk (Phase 2's
+acceptance criterion).
+
+```
+.venv/Scripts/python scripts/reindex_vault.py
+```
+
+Re-reads every note under `vault/` and upserts it back into the DB —
+human edits made directly in Obsidian win.
+
 ## Tests
 
 ```
 .venv/Scripts/python -m pytest
 ```
 
-## Architecture (Phase 1)
+## Architecture
 
+### Phase 1 — reliable core
 - **Orchestrator** (`orchestrator/`): runs a finite, caller-supplied plan
   (list of tool calls) — no autonomous re-planning loop yet, so there's no
   runaway-agent risk at this phase.
@@ -83,8 +107,28 @@ the tool call itself reported as "successful".
 - **Events** (`events/`): every tool call, approval decision, and
   evaluation is written to the `events` table and fanned out live over
   `/ws/live`.
-- **Dashboard** (`api/`, `web/static/`): FastAPI + plain HTML/JS, no
-  build step.
+
+### Phase 2 — memory
+- **Reflection** (`reflection/`): `DeterministicReflectionGenerator` derives
+  what worked/failed/wrong assumptions/what should change from evaluation
+  checks, events, and task state — no LLM call. `ReflectionGenerator` is an
+  explicit swap point for a future LLM-backed implementation.
+  `TaskCompletionHandler` is wired as `EventLogger`'s optional `on_event`
+  callback, so the pipeline fires identically whether triggered from the
+  API or a standalone script.
+- **Memory** (`memory/`): a single `MemoryEntry` table (`episodic` /
+  `semantic` / `user`), embedded via a stateless local `HashingVectorizer`
+  (no fitting, no network, no model download). `memory/retrieval.py`
+  ranks by cosine similarity via one vectorized numpy matmul.
+- **Obsidian** (`obsidian/`): mirrors every memory entry and completed task
+  as Markdown with YAML frontmatter under `vault/`, with `[[wikilinks]]`
+  between a task and its memory. `reindex_vault()` re-reads the vault back
+  into the DB — human edits win.
+
+### Dashboard
+- **`api/`, `web/static/`**: FastAPI + plain HTML/JS, no build step. Panels:
+  New Task, Working Summary, Pending Approvals, Live Activity, Task
+  History, Memory Browser.
 
 Persistence, config, and safety-guardrail details are documented inline
 in `src/megachud/config.py`, `src/megachud/db.py`, and

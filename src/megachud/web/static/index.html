@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>MegaChud — Phase 1 Dashboard</title>
+  <title>MegaChud Dashboard</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
   <header>
     <h1>MegaChud</h1>
-    <span class="subtitle">Phase 1 — Reliable Core</span>
+    <span class="subtitle">Phase 1 — Reliable Core · Phase 2 — Memory</span>
   </header>
 
   <main>
@@ -52,6 +52,30 @@
         </thead>
         <tbody></tbody>
       </table>
+    </section>
+
+    <section class="panel" id="memory-panel">
+      <h2>Memory Browser</h2>
+      <div class="memory-controls">
+        <select id="memory-type-filter">
+          <option value="">All types</option>
+          <option value="episodic">Episodic</option>
+          <option value="semantic">Semantic</option>
+          <option value="user">User</option>
+        </select>
+        <input type="text" id="memory-search-box" placeholder="Search memory..." />
+        <button id="memory-search-btn" type="button">Search</button>
+        <button id="memory-list-btn" type="button">List recent</button>
+        <button id="memory-reindex-btn" type="button">Reindex from vault</button>
+      </div>
+      <form id="new-memory-form">
+        <label>Title <input type="text" id="memory-title" required /></label>
+        <label>Content <textarea id="memory-content" rows="2" required></textarea></label>
+        <label>Tags (comma separated) <input type="text" id="memory-tags" /></label>
+        <button type="submit">Remember this</button>
+      </form>
+      <p id="memory-status"></p>
+      <div id="memory-results"></div>
     </section>
   </main>
 

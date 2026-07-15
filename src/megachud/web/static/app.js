@@ -106,6 +106,88 @@ async function decideApproval(approvalId, approved) {
   refreshTasks();
 }
 
+function renderMemoryResults(items) {
+  const container = el("memory-results");
+  if (items.length === 0) {
+    container.innerHTML = "No memory entries found.";
+    return;
+  }
+  container.innerHTML = "";
+  for (const item of items) {
+    const entry = item.entry ?? item;
+    const div = document.createElement("div");
+    div.className = "memory-item";
+    const scoreLabel = item.score !== undefined ? ` — score ${item.score.toFixed(3)}` : "";
+    div.innerHTML = `
+      <div class="memory-title">${entry.title} <span class="memory-meta">(${entry.memory_type}${scoreLabel})</span></div>
+      <div class="memory-meta">${new Date(entry.created_at).toLocaleString()} · tags: ${entry.tags.join(", ") || "none"}</div>
+      <div class="memory-content">${entry.content}</div>
+    `;
+    container.appendChild(div);
+  }
+}
+
+async function refreshMemory() {
+  const type = el("memory-type-filter").value;
+  const params = new URLSearchParams();
+  if (type) params.set("type", type);
+  const items = await fetchJson(`/memory?${params.toString()}`);
+  renderMemoryResults(items);
+}
+
+async function searchMemory() {
+  const q = el("memory-search-box").value.trim();
+  if (!q) {
+    refreshMemory();
+    return;
+  }
+  const type = el("memory-type-filter").value;
+  const params = new URLSearchParams({ q, top_k: "5" });
+  if (type) params.set("type", type);
+  const results = await fetchJson(`/memory/search?${params.toString()}`);
+  renderMemoryResults(results);
+}
+
+async function submitUserMemory(e) {
+  e.preventDefault();
+  const status = el("memory-status");
+  try {
+    const tags = el("memory-tags").value
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    await fetchJson("/memory/user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: el("memory-title").value,
+        content: el("memory-content").value,
+        tags,
+      }),
+    });
+    status.textContent = "Remembered.";
+    status.style.color = "var(--success)";
+    el("new-memory-form").reset();
+    refreshMemory();
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+    status.style.color = "var(--danger)";
+  }
+}
+
+async function reindexVault() {
+  const status = el("memory-status");
+  const report = await fetchJson("/memory/reindex", { method: "POST" });
+  status.textContent = `Reindexed: created=${report.created} updated=${report.updated} skipped=${report.skipped}`;
+  status.style.color = report.errors.length ? "var(--danger)" : "var(--success)";
+  refreshMemory();
+}
+
+el("memory-search-btn").addEventListener("click", searchMemory);
+el("memory-list-btn").addEventListener("click", refreshMemory);
+el("memory-reindex-btn").addEventListener("click", reindexVault);
+el("new-memory-form").addEventListener("submit", submitUserMemory);
+
 el("new-task-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const status = el("new-task-status");
@@ -132,5 +214,6 @@ el("new-task-form").addEventListener("submit", async (e) => {
 connectLiveFeed();
 refreshTasks();
 refreshApprovals();
+refreshMemory();
 setInterval(refreshTasks, 5000);
 setInterval(refreshApprovals, 3000);

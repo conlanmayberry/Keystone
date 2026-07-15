@@ -43,7 +43,7 @@ main {
   padding: 16px;
 }
 
-#tasks-panel, #activity-panel { grid-column: span 2; }
+#tasks-panel, #activity-panel, #memory-panel { grid-column: span 2; }
 
 .panel h2 {
   margin-top: 0;
@@ -117,3 +117,31 @@ th { color: var(--muted); font-weight: 500; }
 #working-summary dl { margin: 0; font-size: 13px; }
 #working-summary dt { color: var(--muted); margin-top: 8px; }
 #working-summary dd { margin: 2px 0 0 0; }
+
+.memory-controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.memory-controls select,
+.memory-controls input,
+.memory-controls button {
+  width: auto;
+  margin-top: 0;
+}
+.memory-controls input { flex: 1; }
+
+#new-memory-form {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  margin-bottom: 12px;
+}
+
+.memory-item {
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: 13px;
+}
+.memory-item .memory-title { font-weight: 600; }
+.memory-item .memory-meta { color: var(--muted); font-size: 12px; }
+.memory-item .memory-content { margin-top: 4px; white-space: pre-wrap; }

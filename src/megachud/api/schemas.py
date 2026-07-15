@@ -70,3 +70,25 @@ class WorkingSummary(BaseModel):
     blockers: list[str]
     next_step: str | None
     rationale: str
+
+
+class MemoryEntrySummary(BaseModel):
+    id: str
+    memory_type: str
+    title: str
+    content: str
+    tags: list[str]
+    created_at: str
+    source_task_id: str | None
+    vault_path: str | None
+
+
+class MemorySearchResult(BaseModel):
+    entry: MemoryEntrySummary
+    score: float
+
+
+class MemoryCreateRequest(BaseModel):
+    title: str
+    content: str
+    tags: list[str] = []
