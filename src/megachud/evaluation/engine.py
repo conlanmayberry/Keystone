@@ -1,22 +1,33 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
+from megachud.evaluation.checks import check_python_syntax, check_tests_pass, check_tool_calls_succeeded
 from megachud.models.evaluation import Evaluation
 from megachud.models.task import Task
 from megachud.tools.base import ToolResult
 
-# Populated with real checks (tool success, python syntax, test command) in
-# Phase 1 Step 4 — evaluation/checks.py. Empty here means "no checks
-# configured yet", not "assume success"; EvaluationEngine.evaluate still
-# only returns success=True because `all([])` is vacuously true, which is
-# an explicit, visible default (checks_json == "[]"), not a silent skip.
-DEFAULT_CHECKS: list[Callable] = []
+# check_tests_pass defaults to test_command=None (explicit skip) here;
+# construct EvaluationEngine with an overridden checks list bound to
+# settings.evaluation.test_command to actually run a test suite.
+DEFAULT_CHECKS: list[Callable] = [
+    check_tool_calls_succeeded,
+    check_python_syntax,
+    partial(check_tests_pass, test_command=None),
+]
 
 
 class EvaluationEngine:
+    """Implements spec principle 'every task must be evaluated, never assume
+    success': a task is only marked succeeded if every check here passes,
+    even if all tool calls individually reported success — e.g. all tool
+    calls can succeed while writing a file with a syntax error, which this
+    catches and the tool-level result alone would not.
+    """
+
     def __init__(self, checks: list[Callable] | None = None) -> None:
         self._checks = checks if checks is not None else DEFAULT_CHECKS
 

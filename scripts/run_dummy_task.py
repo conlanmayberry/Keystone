@@ -45,23 +45,36 @@ def main() -> None:
         workspace_root=settings.workspace_root,
     )
 
-    plan = [
-        {"tool_name": "write_file", "args": {"path": "dummy_task_output.txt", "content": "hello from run_dummy_task"}},
-        {"tool_name": "read_file", "args": {"path": "dummy_task_output.txt"}},
-    ]
+    def run_plan(title: str, prompt: str, plan: list[dict]) -> None:
+        session = session_factory()
+        try:
+            task = Task(title=title, prompt=prompt, plan_json=json.dumps(plan))
+            session.add(task)
+            session.commit()
+            task_id = task.id
+        finally:
+            session.close()
 
-    session = session_factory()
-    try:
-        task = Task(title="dummy smoke task", prompt="write then read a file", plan_json=json.dumps(plan))
-        session.add(task)
-        session.commit()
-        task_id = task.id
-    finally:
-        session.close()
+        result = orchestrator.run_task(task_id)
+        print(f"Task {task_id} ({title!r}) finished with status={result.status.value}")
+        print(f"result_summary={result.result_summary}")
 
-    result = orchestrator.run_task(task_id)
-    print(f"Task {task_id} finished with status={result.status.value}")
-    print(f"result_summary={result.result_summary}")
+    run_plan(
+        "dummy smoke task",
+        "write then read a file",
+        [
+            {"tool_name": "write_file", "args": {"path": "dummy_task_output.txt", "content": "hello from run_dummy_task"}},
+            {"tool_name": "read_file", "args": {"path": "dummy_task_output.txt"}},
+        ],
+    )
+
+    run_plan(
+        "dummy syntax error task",
+        "write a python file with a deliberate syntax error",
+        [
+            {"tool_name": "write_file", "args": {"path": "broken_output.py", "content": "def f(:\n    pass\n"}},
+        ],
+    )
 
 
 if __name__ == "__main__":

@@ -62,5 +62,5 @@ class WriteFileTool(Tool):
         return ToolResult(
             success=True,
             output=f"wrote {written} bytes to {args['path']}",
-            metadata={"bytes_written": written},
+            metadata={"bytes_written": written, "path": args["path"]},
         )
