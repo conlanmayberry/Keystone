@@ -32,3 +32,10 @@ def db_session(tmp_path) -> Session:
         yield session
     finally:
         session.close()
+
+
+@pytest.fixture
+def session_factory(tmp_path):
+    engine = get_engine(tmp_path / "test_engine.db")
+    init_db(engine)
+    return make_session_factory(engine)
