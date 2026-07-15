@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MegaChud — Phase 1 Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>MegaChud</h1>
+    <span class="subtitle">Phase 1 — Reliable Core</span>
+  </header>
+
+  <main>
+    <section class="panel" id="new-task-panel">
+      <h2>New Task</h2>
+      <form id="new-task-form">
+        <label>Title <input type="text" id="task-title" required /></label>
+        <label>Prompt <textarea id="task-prompt" rows="2" required></textarea></label>
+        <label>
+          Tool calls (JSON array of {"tool_name","args"})
+          <textarea id="task-tool-calls" rows="4">[
+  {"tool_name": "write_file", "args": {"path": "hello.txt", "content": "hi"}},
+  {"tool_name": "read_file", "args": {"path": "hello.txt"}}
+]</textarea>
+        </label>
+        <button type="submit">Run Task</button>
+      </form>
+      <p id="new-task-status"></p>
+    </section>
+
+    <section class="panel" id="working-summary-panel">
+      <h2>Working Summary</h2>
+      <div id="working-summary">Select a task to see its working summary.</div>
+    </section>
+
+    <section class="panel" id="approvals-panel">
+      <h2>Pending Approvals</h2>
+      <div id="approvals-list">No pending approvals.</div>
+    </section>
+
+    <section class="panel" id="activity-panel">
+      <h2>Live Activity</h2>
+      <div id="activity-feed"></div>
+    </section>
+
+    <section class="panel" id="tasks-panel">
+      <h2>Task History</h2>
+      <table id="tasks-table">
+        <thead>
+          <tr><th>Title</th><th>Status</th><th>Created</th><th>Completed</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

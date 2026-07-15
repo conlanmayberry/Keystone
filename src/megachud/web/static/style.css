@@ -1,0 +1,119 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --border: #2a2f3a;
+  --text: #e2e5ea;
+  --muted: #8b92a3;
+  --accent: #4c8bf5;
+  --danger: #e5534b;
+  --success: #3fb950;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 { margin: 0; font-size: 20px; }
+.subtitle { color: var(--muted); font-size: 13px; }
+
+main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+#tasks-panel, #activity-panel { grid-column: span 2; }
+
+.panel h2 {
+  margin-top: 0;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+form label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+input, textarea, button {
+  width: 100%;
+  background: #0f1115;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+textarea { font-family: ui-monospace, monospace; }
+
+button {
+  cursor: pointer;
+  background: var(--accent);
+  border: none;
+  font-weight: 600;
+}
+
+button.deny { background: var(--danger); }
+button.approve { background: var(--success); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; }
+
+#activity-feed {
+  max-height: 240px;
+  overflow-y: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+#activity-feed .event { padding: 3px 0; border-bottom: 1px dashed var(--border); }
+#activity-feed .event .type { color: var(--accent); }
+
+.approval-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.approval-item .actions { display: flex; gap: 6px; width: auto; }
+.approval-item .actions button { width: auto; padding: 4px 10px; }
+
+.status-succeeded { color: var(--success); }
+.status-failed { color: var(--danger); }
+.status-running, .status-awaiting_approval { color: var(--accent); }
+
+#working-summary dl { margin: 0; font-size: 13px; }
+#working-summary dt { color: var(--muted); margin-top: 8px; }
+#working-summary dd { margin: 2px 0 0 0; }
