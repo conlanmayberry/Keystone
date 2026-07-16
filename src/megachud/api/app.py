@@ -17,6 +17,7 @@ from megachud.db import get_engine, init_db, make_session_factory
 from megachud.evaluation.checks import check_python_syntax, check_tests_pass, check_tool_calls_succeeded
 from megachud.evaluation.engine import EvaluationEngine
 from megachud.events.bus import EventBus
+from megachud.events.dispatcher import EventDispatcher
 from megachud.events.logger import EventLogger
 from megachud.memory.store import MemoryStore
 from megachud.obsidian.vault import VaultWriter
@@ -24,6 +25,7 @@ from megachud.orchestrator.approval_gate import ApprovalGate
 from megachud.orchestrator.engine import Orchestrator
 from megachud.reflection.engine import ReflectionEngine
 from megachud.reflection.handler import TaskCompletionHandler
+from megachud.strategy.metrics import StrategyMetricsHandler
 from megachud.tools.file_tools import ReadFileTool, WriteFileTool
 from megachud.tools.registry import ToolRegistry
 from megachud.tools.shell_tool import ShellExecTool
@@ -44,8 +46,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     memory_store = MemoryStore(session_factory, vector_dim=settings.memory.vector_dim)
     vault_writer = VaultWriter(settings.vault_root)
     completion_handler = TaskCompletionHandler(reflection_engine, memory_store, vault_writer)
+    strategy_metrics_handler = StrategyMetricsHandler(session_factory)
 
-    event_logger = EventLogger(session_factory, bus, on_event=completion_handler)
+    # Order matters: completion_handler must run first — later handlers
+    # (e.g. a future curiosity handler) read the Reflection row it creates.
+    dispatcher = EventDispatcher([completion_handler, strategy_metrics_handler])
+    event_logger = EventLogger(session_factory, bus, on_event=dispatcher)
 
     registry = ToolRegistry()
     registry.register(ReadFileTool(settings.workspace_root))
@@ -98,6 +104,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.orchestrator = orchestrator
     app.state.tool_registry = registry
     app.state.memory_store = memory_store
+    app.state.vault_writer = vault_writer
     app.state.executor = ThreadPoolExecutor(max_workers=4)
 
     app.include_router(routes_tasks.router)
