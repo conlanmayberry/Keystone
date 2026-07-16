@@ -8,7 +8,7 @@
 <body>
   <header>
     <h1>MegaChud</h1>
-    <span class="subtitle">Phase 1 — Reliable Core · Phase 2 — Memory</span>
+    <span class="subtitle">Phase 1 — Reliable Core · Phase 2 — Memory · Phase 3 — Improvement</span>
   </header>
 
   <main>
@@ -76,6 +76,47 @@
       </form>
       <p id="memory-status"></p>
       <div id="memory-results"></div>
+    </section>
+
+    <section class="panel" id="strategy-panel">
+      <h2>Strategy / Workflow Browser</h2>
+      <div id="strategy-list"></div>
+      <form id="invoke-strategy-form">
+        <label>Strategy ID <input type="text" id="invoke-strategy-id" required /></label>
+        <label>Params (JSON object) <textarea id="invoke-strategy-params" rows="2">{}</textarea></label>
+        <button type="submit">Invoke</button>
+      </form>
+      <p id="strategy-status"></p>
+    </section>
+
+    <section class="panel" id="experiment-panel">
+      <h2>Experiment Browser</h2>
+      <div id="experiment-list"></div>
+      <form id="new-experiment-form">
+        <label>Workflow name <input type="text" id="experiment-workflow-name" required /></label>
+        <label>Hypothesis <input type="text" id="experiment-hypothesis" required /></label>
+        <label>Control strategy ID <input type="text" id="experiment-control-id" required /></label>
+        <label>Variant strategy ID <input type="text" id="experiment-variant-id" required /></label>
+        <label>Minimum sample size <input type="number" id="experiment-min-samples" value="10" /></label>
+        <button type="submit">Create experiment</button>
+      </form>
+      <p id="experiment-status"></p>
+      <h3>Pending Promotions</h3>
+      <div id="promotion-list">No pending promotions.</div>
+    </section>
+
+    <section class="panel" id="curiosity-panel">
+      <h2>Curiosity</h2>
+      <h3>Pending Questions</h3>
+      <div id="question-list">No pending questions.</div>
+      <h3>Research Objectives</h3>
+      <div id="objective-list"></div>
+    </section>
+
+    <section class="panel" id="bottleneck-panel">
+      <h2>Bottleneck Findings</h2>
+      <button id="bottleneck-scan-btn" type="button">Scan now</button>
+      <div id="bottleneck-list"></div>
     </section>
   </main>
 

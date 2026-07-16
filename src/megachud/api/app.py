@@ -11,7 +11,17 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from megachud.api import routes_approvals, routes_memory, routes_tasks, ws
+from megachud.api import (
+    routes_approvals,
+    routes_bottleneck,
+    routes_curiosity,
+    routes_experiment,
+    routes_memory,
+    routes_promotion,
+    routes_strategy,
+    routes_tasks,
+    ws,
+)
 from megachud.config import Settings
 from megachud.curiosity.engine import CuriosityHandler
 from megachud.db import get_engine, init_db, make_session_factory
@@ -117,6 +127,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(routes_tasks.router)
     app.include_router(routes_approvals.router)
     app.include_router(routes_memory.router)
+    app.include_router(routes_strategy.router)
+    app.include_router(routes_experiment.router)
+    app.include_router(routes_promotion.router)
+    app.include_router(routes_curiosity.router)
+    app.include_router(routes_bottleneck.router)
     app.include_router(ws.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

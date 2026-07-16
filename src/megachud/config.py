@@ -46,6 +46,16 @@ class CuriosityConfig(BaseModel):
     research_objective_top_k: int = 3
 
 
+class ExperimentConfig(BaseModel):
+    default_minimum_sample_size: int = 10
+
+
+class BottleneckConfig(BaseModel):
+    window_days: int = 7
+    min_samples: int = 5
+    tool_failure_rate_threshold: float = 0.2
+
+
 class Settings(BaseModel):
     workspace_root: Path
     db_path: Path
@@ -57,6 +67,8 @@ class Settings(BaseModel):
     logging: LoggingConfig = LoggingConfig()
     memory: MemoryConfig = MemoryConfig()
     curiosity: CuriosityConfig = CuriosityConfig()
+    experiment: ExperimentConfig = ExperimentConfig()
+    bottleneck: BottleneckConfig = BottleneckConfig()
 
     @classmethod
     def load(

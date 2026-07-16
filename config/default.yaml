@@ -30,3 +30,11 @@ memory:
 curiosity:
   similarity_threshold: 0.35
   research_objective_top_k: 3
+
+experiment:
+  default_minimum_sample_size: 10
+
+bottleneck:
+  window_days: 7
+  min_samples: 5
+  tool_failure_rate_threshold: 0.2

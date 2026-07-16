@@ -92,3 +92,129 @@ class MemoryCreateRequest(BaseModel):
     title: str
     content: str
     tags: list[str] = []
+
+
+class StrategySummary(BaseModel):
+    id: str
+    workflow_name: str
+    version: int
+    is_active: bool
+    title: str
+    description: str
+    plan_template: list[dict[str, Any]]
+    parameters: list[str]
+    tags: list[str]
+    origin: str
+    sample_count: int
+    success_count: int
+    success_rate: float
+    mean_duration_ms: float
+    mean_score: float | None
+    created_at: str
+
+
+class StrategyCreateRequest(BaseModel):
+    workflow_name: str
+    title: str
+    description: str = ""
+    plan_template: list[dict[str, Any]]
+    parameters: list[str] = []
+    tags: list[str] = []
+
+
+class StrategyUpdateRequest(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    plan_template: list[dict[str, Any]] | None = None
+    parameters: list[str] | None = None
+    tags: list[str] | None = None
+
+
+class StrategyInvokeRequest(BaseModel):
+    params: dict[str, Any] = {}
+    title: str | None = None
+
+
+class StrategyInvokeResponse(BaseModel):
+    task_id: str
+
+
+class ExperimentSummary(BaseModel):
+    id: str
+    workflow_name: str
+    hypothesis: str
+    control_strategy_id: str
+    variant_strategy_id: str
+    minimum_sample_size: int
+    status: str
+    recommendation: str | None
+    result: dict[str, Any] | None
+    created_at: str
+
+
+class ExperimentCreateRequest(BaseModel):
+    workflow_name: str
+    hypothesis: str
+    control_strategy_id: str
+    variant_strategy_id: str
+    minimum_sample_size: int = 10
+
+
+class PromotionSummary(BaseModel):
+    id: str
+    experiment_id: str
+    workflow_name: str
+    from_strategy_id: str
+    to_strategy_id: str
+    justification: str
+    status: str
+    created_at: str
+
+
+class PromotionDecisionRequest(BaseModel):
+    approved: bool
+    note: str | None = None
+
+
+class PendingQuestionSummary(BaseModel):
+    id: str
+    source_task_id: str | None
+    question: str
+    context: str
+    status: str
+    answer: str | None
+    created_at: str
+
+
+class QuestionAnswerRequest(BaseModel):
+    answer: str
+
+
+class ResearchObjectiveSummary(BaseModel):
+    id: str
+    source_task_id: str | None
+    objective_type: str
+    description: str
+    findings: list[dict[str, Any]]
+    resolved: bool
+    created_at: str
+
+
+class BottleneckFindingSummary(BaseModel):
+    kind: str
+    subject: str
+    detail: str
+    severity: float
+
+
+class ProposeExperimentRequest(BaseModel):
+    """Mirrors bottleneck.finder.BottleneckFinding — the frontend already
+    has these fields from its last GET /bottlenecks call, so the route
+    reconstructs the finding from the request body instead of re-running
+    the (heavier) scan just to look one finding back up.
+    """
+
+    kind: str
+    subject: str
+    detail: str
+    severity: float
