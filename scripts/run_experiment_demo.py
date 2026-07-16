@@ -1,15 +1,17 @@
 """Phase 3 end-to-end demo, built incrementally across all 6 build steps.
 
-Step 3 (this version): seed a "variant" strategy that always succeeds
-(appends .txt instead of trusting the caller's extension), run enough
-invocations of both control and variant to clear the experiment's
-minimum sample size, then evaluate the experiment and show the resulting
-recommendation + PromotionRequest.
+Step 4 (this version): invokes a "flaky" strategy whose plan always calls
+a shell command outside the allowlist — a genuine TOOL-level failure
+(unlike the write_greeting strategy's syntax failures, which are
+evaluation-level and never cause a tool_result failure) — then runs
+find_bottlenecks() and prints findings sorted by severity, expecting a
+tool_failure_rate finding for shell_exec.
 """
 
 import json
 from functools import partial
 
+from megachud.bottleneck.finder import find_bottlenecks
 from megachud.config import Settings
 from megachud.db import get_engine, init_db, make_session_factory
 from megachud.evaluation.checks import check_python_syntax, check_tests_pass, check_tool_calls_succeeded
@@ -33,6 +35,7 @@ from megachud.strategy.metrics import StrategyMetricsHandler
 
 from megachud.tools.file_tools import ReadFileTool, WriteFileTool
 from megachud.tools.registry import ToolRegistry
+from megachud.tools.shell_tool import ShellExecTool
 
 WORKFLOW_NAME = "write_greeting"
 # Hardcoded here rather than read from settings.experiment.default_minimum_sample_size
@@ -115,6 +118,9 @@ def build(settings: Settings):
     registry = ToolRegistry()
     registry.register(ReadFileTool(settings.workspace_root))
     registry.register(WriteFileTool(settings.workspace_root))
+    registry.register(
+        ShellExecTool(settings.workspace_root, allowlist=["python"], denylist=[], timeout_seconds=10)
+    )
 
     approval_gate = ApprovalGate(
         session_factory,
@@ -147,6 +153,36 @@ def print_strategy_metrics(session_factory, strategy_id: str, label: str) -> Non
     try:
         strategy = session.get(Strategy, strategy_id)
         print(f"{label}: sample_count={strategy.sample_count} success_count={strategy.success_count} success_rate={strategy.success_rate:.2f}")
+    finally:
+        session.close()
+
+
+def seed_flaky_strategy(session_factory) -> str:
+    """A strategy whose plan calls a disallowed shell command — always
+    fails at the TOOL level (not just the evaluation level, unlike the
+    write_greeting strategy's syntax failures), so it produces genuine
+    tool_result failures for the bottleneck detector's tool_failure_rate
+    check to find.
+    """
+    session = session_factory()
+    try:
+        existing = session.query(Strategy).filter_by(workflow_name="flaky_shell_command").first()
+        if existing is not None:
+            return existing.id
+
+        strategy = Strategy(
+            workflow_name="flaky_shell_command",
+            version=1,
+            is_active=True,
+            title="Run a disallowed shell command",
+            description="Deliberately calls a command outside the shell allowlist, for bottleneck-detection demo purposes.",
+            plan_template_json=json.dumps([{"tool_name": "shell_exec", "args": {"command": "curl http://example.com"}}]),
+            parameters_json=json.dumps([]),
+            tags_json=json.dumps(["demo", "flaky"]),
+        )
+        session.add(strategy)
+        session.commit()
+        return strategy.id
     finally:
         session.close()
 
@@ -212,6 +248,18 @@ def main() -> None:
             print("No PromotionRequest created.")
     finally:
         session.close()
+
+    flaky_id = seed_flaky_strategy(session_factory)
+    print(f"\nFlaky strategy: {flaky_id} (running it 5 times, always fails the shell allowlist)")
+    for _ in range(5):
+        invoke_and_run(session_factory, event_logger, orchestrator, flaky_id, {})
+
+    print("\nBottleneck scan:")
+    findings = find_bottlenecks(session_factory, min_samples=3)
+    if not findings:
+        print("  (no findings)")
+    for finding in findings:
+        print(f"  [{finding.severity:.2f}] {finding.kind} / {finding.subject}: {finding.detail}")
 
 
 if __name__ == "__main__":
