@@ -41,6 +41,11 @@ class MemoryConfig(BaseModel):
     default_top_k: int = 5
 
 
+class CuriosityConfig(BaseModel):
+    similarity_threshold: float = 0.35
+    research_objective_top_k: int = 3
+
+
 class Settings(BaseModel):
     workspace_root: Path
     db_path: Path
@@ -51,6 +56,7 @@ class Settings(BaseModel):
     evaluation: EvaluationConfig = EvaluationConfig()
     logging: LoggingConfig = LoggingConfig()
     memory: MemoryConfig = MemoryConfig()
+    curiosity: CuriosityConfig = CuriosityConfig()
 
     @classmethod
     def load(

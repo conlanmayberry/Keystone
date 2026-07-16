@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from megachud.api import routes_approvals, routes_memory, routes_tasks, ws
 from megachud.config import Settings
+from megachud.curiosity.engine import CuriosityHandler
 from megachud.db import get_engine, init_db, make_session_factory
 from megachud.evaluation.checks import check_python_syntax, check_tests_pass, check_tool_calls_succeeded
 from megachud.evaluation.engine import EvaluationEngine
@@ -47,10 +48,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     vault_writer = VaultWriter(settings.vault_root)
     completion_handler = TaskCompletionHandler(reflection_engine, memory_store, vault_writer)
     strategy_metrics_handler = StrategyMetricsHandler(session_factory)
+    curiosity_handler = CuriosityHandler(
+        session_factory,
+        vector_dim=settings.memory.vector_dim,
+        similarity_threshold=settings.curiosity.similarity_threshold,
+        research_objective_top_k=settings.curiosity.research_objective_top_k,
+    )
 
-    # Order matters: completion_handler must run first — later handlers
-    # (e.g. a future curiosity handler) read the Reflection row it creates.
-    dispatcher = EventDispatcher([completion_handler, strategy_metrics_handler])
+    # Order matters: completion_handler must run first — curiosity_handler
+    # reads the Reflection row it creates.
+    dispatcher = EventDispatcher([completion_handler, strategy_metrics_handler, curiosity_handler])
     event_logger = EventLogger(session_factory, bus, on_event=dispatcher)
 
     registry = ToolRegistry()

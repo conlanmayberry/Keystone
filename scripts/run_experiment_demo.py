@@ -1,18 +1,22 @@
 """Phase 3 end-to-end demo, built incrementally across all 6 build steps.
 
-Step 4 (this version): invokes a "flaky" strategy whose plan always calls
-a shell command outside the allowlist — a genuine TOOL-level failure
-(unlike the write_greeting strategy's syntax failures, which are
-evaluation-level and never cause a tool_result failure) — then runs
-find_bottlenecks() and prints findings sorted by severity, expecting a
-tool_failure_rate finding for shell_exec.
+Step 5 (this version): runs a task with a deliberately unique prompt (so
+it never matches prior memory, regardless of how many times this script
+has been re-run against the accumulating dev DB) that fails in a way that
+produces become_long_term_knowledge=True, shows a PendingQuestion was
+raised, answers it, and shows the answer is now retrievable via memory
+search — closing the loop from curiosity back into Phase 2's memory
+system.
 """
 
 import json
+import uuid
 from functools import partial
 
 from megachud.bottleneck.finder import find_bottlenecks
 from megachud.config import Settings
+from megachud.curiosity.answers import answer_question
+from megachud.curiosity.engine import CuriosityHandler
 from megachud.db import get_engine, init_db, make_session_factory
 from megachud.evaluation.checks import check_python_syntax, check_tests_pass, check_tool_calls_succeeded
 from megachud.evaluation.engine import EvaluationEngine
@@ -20,8 +24,11 @@ from megachud.events.bus import EventBus
 from megachud.events.dispatcher import EventDispatcher
 from megachud.events.logger import EventLogger
 from megachud.experiment.engine import evaluate_experiment
+from megachud.memory.retrieval import search
 from megachud.memory.store import MemoryStore
+from megachud.models.curiosity import PendingQuestion
 from megachud.models.experiment import Experiment
+from megachud.models.memory_entry import MemoryType
 from megachud.models.promotion_request import PromotionRequest
 from megachud.models.strategy import Strategy, StrategyOrigin
 from megachud.models.task import Task
@@ -111,7 +118,13 @@ def build(settings: Settings):
     vault_writer = VaultWriter(settings.vault_root)
     completion_handler = TaskCompletionHandler(reflection_engine, memory_store, vault_writer)
     strategy_metrics_handler = StrategyMetricsHandler(session_factory)
-    dispatcher = EventDispatcher([completion_handler, strategy_metrics_handler])
+    curiosity_handler = CuriosityHandler(
+        session_factory,
+        vector_dim=settings.memory.vector_dim,
+        similarity_threshold=settings.curiosity.similarity_threshold,
+        research_objective_top_k=settings.curiosity.research_objective_top_k,
+    )
+    dispatcher = EventDispatcher([completion_handler, strategy_metrics_handler, curiosity_handler])
 
     event_logger = EventLogger(session_factory, EventBus(), on_event=dispatcher)
 
@@ -139,7 +152,7 @@ def build(settings: Settings):
         event_logger=event_logger,
         workspace_root=settings.workspace_root,
     )
-    return session_factory, event_logger, orchestrator
+    return session_factory, event_logger, orchestrator, memory_store, vault_writer
 
 
 def invoke_and_run(session_factory, event_logger, orchestrator, strategy_id: str, params: dict) -> Task:
@@ -204,9 +217,33 @@ def create_experiment(session_factory, control_id: str, variant_id: str, min_sam
         session.close()
 
 
+def run_novel_failing_task(session_factory, event_logger, orchestrator) -> str:
+    """Creates and runs an ad-hoc task (not strategy-invoked) with a
+    prompt guaranteed unique via a UUID fragment, so it never matches
+    prior memory no matter how many times this script has been re-run.
+    Writes an intentionally broken .py file, guaranteeing
+    become_long_term_knowledge=True.
+    """
+    unique = uuid.uuid4().hex[:8]
+    prompt = f"investigate a never-before-seen configuration issue {unique}"
+    plan = [{"tool_name": "write_file", "args": {"path": f"novel_{unique}.py", "content": "this is not valid python {{{"}}]
+
+    session = session_factory()
+    try:
+        task = Task(title=f"Novel issue {unique}", prompt=prompt, plan_json=json.dumps(plan))
+        session.add(task)
+        session.commit()
+        task_id = task.id
+    finally:
+        session.close()
+
+    orchestrator.run_task(task_id)
+    return task_id
+
+
 def main() -> None:
     settings = Settings.load()
-    session_factory, event_logger, orchestrator = build(settings)
+    session_factory, event_logger, orchestrator, memory_store, vault_writer = build(settings)
 
     strategy_id = seed_strategy(session_factory)
     variant_id = seed_variant_strategy(session_factory, strategy_id)
@@ -260,6 +297,29 @@ def main() -> None:
         print("  (no findings)")
     for finding in findings:
         print(f"  [{finding.severity:.2f}] {finding.kind} / {finding.subject}: {finding.detail}")
+
+    print("\nCuriosity: running a task with a guaranteed-novel prompt and a broken .py write...")
+    novel_task_id = run_novel_failing_task(session_factory, event_logger, orchestrator)
+
+    session = session_factory()
+    try:
+        question = session.query(PendingQuestion).filter_by(source_task_id=novel_task_id).first()
+    finally:
+        session.close()
+
+    if question is None:
+        print("  No PendingQuestion raised (unexpected — check similarity_threshold config).")
+    else:
+        print(f"  PendingQuestion {question.id}: {question.question}")
+        entry = answer_question(
+            session_factory, memory_store, vault_writer, question.id,
+            "For unfamiliar configuration issues, write a minimal repro script first and validate its syntax before running it.",
+        )
+        print(f"  Answered -> MemoryEntry {entry.id} (vault_path={entry.vault_path})")
+
+        results = search(session_factory, "configuration issue repro script", settings.memory.vector_dim, memory_type=MemoryType.USER, top_k=3)
+        found = any(r.entry.id == entry.id for r in results)
+        print(f"  Retrievable via memory search: {found}")
 
 
 if __name__ == "__main__":
