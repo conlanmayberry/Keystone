@@ -18,6 +18,7 @@ def get_engine(db_path: Path) -> Engine:
 def init_db(engine: Engine) -> None:
     # Importing models registers them on Base.metadata before create_all.
     from megachud.models import approval, evaluation, event, memory_entry, reflection, task  # noqa: F401
+    from megachud.models import strategy  # noqa: F401
 
     Base.metadata.create_all(engine)
 
