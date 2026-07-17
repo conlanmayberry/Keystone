@@ -57,6 +57,19 @@ def test_get_missing_task_returns_404(test_settings):
         assert response.status_code == 404
 
 
+def test_created_task_is_tagged_with_current_agent_and_filterable(test_settings):
+    app = create_app(test_settings)
+    with TestClient(app) as client:
+        client.post("/tasks", json={"title": "tagged", "prompt": "p", "tool_calls": []})
+        agent_id = client.get("/agents").json()[0]["id"]
+
+        matching = client.get(f"/tasks?agent_id={agent_id}").json()
+        assert "tagged" in [t["title"] for t in matching]
+
+        non_matching = client.get("/tasks?agent_id=some-other-agent-id").json()
+        assert "tagged" not in [t["title"] for t in non_matching]
+
+
 def test_working_summary_reflects_plan(test_settings):
     app = create_app(test_settings)
     with TestClient(app) as client:

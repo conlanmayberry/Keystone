@@ -12,12 +12,14 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from megachud.api import (
+    routes_agents,
     routes_analytics,
     routes_approvals,
     routes_bottleneck,
     routes_curiosity,
     routes_experiment,
     routes_memory,
+    routes_meta,
     routes_promotion,
     routes_review,
     routes_routing,
@@ -106,7 +108,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     reflection_engine = ReflectionEngine(session_factory, generator=reflection_generator)
-    memory_store = MemoryStore(session_factory, vector_dim=settings.memory.vector_dim)
+    memory_store = MemoryStore(
+        session_factory,
+        vector_dim=settings.memory.vector_dim,
+        agent_id=current_agent_id,
+        project_name=settings.project_name,
+    )
     vault_writer = VaultWriter(settings.vault_root)
     completion_handler = TaskCompletionHandler(reflection_engine, memory_store, vault_writer)
     strategy_metrics_handler = StrategyMetricsHandler(session_factory)
@@ -178,6 +185,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(routes_analytics.router)
     app.include_router(routes_review.router)
     app.include_router(routes_routing.router)
+    app.include_router(routes_agents.router)
+    app.include_router(routes_meta.router)
     app.include_router(ws.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

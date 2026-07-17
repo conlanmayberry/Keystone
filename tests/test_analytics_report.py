@@ -136,6 +136,47 @@ def test_cost_data_unavailable_when_no_event_has_cost(session_factory):
     assert report.total_cost_usd == 0.0
 
 
+def test_task_counts_by_status_filtered_by_agent_id(session_factory):
+    session = session_factory()
+    try:
+        session.add(Task(title="a", prompt="p", status=TaskStatus.SUCCEEDED, agent_id="agent-1"))
+        session.add(Task(title="b", prompt="p", status=TaskStatus.SUCCEEDED, agent_id="agent-2"))
+        session.add(Task(title="c", prompt="p", status=TaskStatus.FAILED, agent_id="agent-1"))
+        session.commit()
+    finally:
+        session.close()
+
+    report = build_analytics_report(session_factory, WINDOW_START, WINDOW_END, agent_id="agent-1")
+
+    assert report.task_counts_by_status == {"succeeded": 1, "failed": 1}
+
+
+def test_strategy_success_rates_filtered_by_agent_id(session_factory):
+    session = session_factory()
+    try:
+        session.add(Strategy(workflow_name="wf1", title="t", is_active=True, sample_count=2, success_count=2, agent_id="agent-1"))
+        session.add(Strategy(workflow_name="wf2", title="t", is_active=True, sample_count=2, success_count=0, agent_id="agent-2"))
+        session.commit()
+    finally:
+        session.close()
+
+    report = build_analytics_report(session_factory, WINDOW_START, WINDOW_END, agent_id="agent-1")
+
+    assert report.strategy_success_rates == {"wf1": 1.0}
+
+
+def test_tool_call_counts_stay_unfiltered_by_agent_id(session_factory):
+    # Documented honest gap: Event has no agent_id column (not one of the
+    # four Phase 5 tagged tables), so tool/event-derived stats can't be
+    # scoped by agent this phase — passing agent_id must not silently drop
+    # or crash on these fields.
+    make_event(session_factory, "tool_result", tool_name="write_file", payload={"success": True})
+
+    report = build_analytics_report(session_factory, WINDOW_START, WINDOW_END, agent_id="agent-1")
+
+    assert report.tool_call_counts == {"write_file": 1}
+
+
 def test_cost_data_available_once_one_event_has_cost_set(session_factory):
     make_event(session_factory, "tool_result", tool_name="write_file", cost_usd=0.0, tokens_input=10, tokens_output=5)
     make_event(session_factory, "tool_result", tool_name="write_file")

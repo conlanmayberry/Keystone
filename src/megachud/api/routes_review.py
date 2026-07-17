@@ -55,18 +55,25 @@ def generate_review(kind: str, request: Request) -> ReviewReportSummary:
     """Computes AND persists."""
     review_kind = _parse_kind(kind)
     report = _generate(review_kind, request.app.state.session_factory, request.app.state.settings)
-    persist_review(request.app.state.session_factory, report)
+    persist_review(
+        request.app.state.session_factory,
+        report,
+        agent_id=request.app.state.current_agent_id,
+        project_name=request.app.state.settings.project_name,
+    )
     return _to_summary(report)
 
 
 @router.get("/reviews", response_model=list[ReviewSummary])
-def list_reviews(request: Request, kind: str | None = None) -> list[ReviewSummary]:
+def list_reviews(request: Request, kind: str | None = None, agent_id: str | None = None) -> list[ReviewSummary]:
     session_factory = request.app.state.session_factory
     session = session_factory()
     try:
         query = session.query(Review)
         if kind:
             query = query.filter_by(kind=_parse_kind(kind))
+        if agent_id:
+            query = query.filter_by(agent_id=agent_id)
         reviews = query.order_by(Review.created_at.desc()).all()
         return [
             ReviewSummary(

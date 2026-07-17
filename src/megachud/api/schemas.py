@@ -280,3 +280,22 @@ class RoutingDecisionSummary(BaseModel):
     reason: str
     estimated_cost_usd: float
     candidates_considered: list[str]
+
+
+class AgentSummary(BaseModel):
+    id: str
+    name: str
+    description: str
+    created_at: str
+
+
+class MetaSummary(BaseModel):
+    project_name: str
+    agent_name: str
+
+
+class PluginLoadResultSummary(BaseModel):
+    name: str
+    source: str
+    success: bool
+    error: str | None = None

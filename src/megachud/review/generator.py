@@ -227,7 +227,12 @@ def _json_default(value: object) -> str:
     raise TypeError(f"not JSON serializable: {value!r}")
 
 
-def persist_review(session_factory: sessionmaker[Session], report: ReviewReport) -> str:
+def persist_review(
+    session_factory: sessionmaker[Session],
+    report: ReviewReport,
+    agent_id: str | None = None,
+    project_name: str | None = None,
+) -> str:
     session = session_factory()
     try:
         review = Review(
@@ -235,6 +240,8 @@ def persist_review(session_factory: sessionmaker[Session], report: ReviewReport)
             window_start=report.window_start,
             window_end=report.window_end,
             report_json=json.dumps(dataclasses.asdict(report), default=_json_default),
+            agent_id=agent_id,
+            project_name=project_name,
         )
         session.add(review)
         session.commit()

@@ -36,15 +36,28 @@ class AnalyticsReport:
 
 
 def build_analytics_report(
-    session_factory: sessionmaker[Session], window_start: datetime, window_end: datetime
+    session_factory: sessionmaker[Session],
+    window_start: datetime,
+    window_end: datetime,
+    agent_id: str | None = None,
 ) -> AnalyticsReport:
+    """agent_id filters only task_counts_by_status and strategy_success_rates
+    — the two stats with a direct agent_id column (Task, Strategy).
+    tool_call_counts/tool_failure_rates/event_counts_by_type/cost and token
+    totals are derived directly from Event rows with no join to Task, and
+    Event is deliberately not one of the Phase 5 tagged tables — filtering
+    those would need an Event.task_id -> Task.agent_id join, a schema/query
+    change out of this phase's "structural readiness only" scope.
+    experiment_outcome_counts/become_long_term_knowledge_rate stay
+    unfiltered too (Experiment/Reflection aren't tagged). An honest gap,
+    same pattern as cost_data_available.
+    """
     session = session_factory()
     try:
-        tasks = (
-            session.query(Task)
-            .filter(Task.created_at >= window_start, Task.created_at < window_end)
-            .all()
-        )
+        task_query = session.query(Task).filter(Task.created_at >= window_start, Task.created_at < window_end)
+        if agent_id:
+            task_query = task_query.filter(Task.agent_id == agent_id)
+        tasks = task_query.all()
         task_counts_by_status = dict(Counter(t.status.value for t in tasks))
 
         all_events = (
@@ -65,7 +78,10 @@ def build_analytics_report(
             tool: 1 - (sum(outcomes) / len(outcomes)) for tool, outcomes in tool_outcomes.items()
         }
 
-        active_strategies = session.query(Strategy).filter_by(is_active=True).all()
+        strategy_query = session.query(Strategy).filter_by(is_active=True)
+        if agent_id:
+            strategy_query = strategy_query.filter(Strategy.agent_id == agent_id)
+        active_strategies = strategy_query.all()
         strategy_success_rates = {s.workflow_name: s.success_rate for s in active_strategies}
 
         experiments = (

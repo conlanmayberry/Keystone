@@ -11,9 +11,17 @@ from megachud.models.task import Task
 
 
 class MemoryStore:
-    def __init__(self, session_factory: sessionmaker[Session], vector_dim: int) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        vector_dim: int,
+        agent_id: str | None = None,
+        project_name: str | None = None,
+    ) -> None:
         self._session_factory = session_factory
         self._vector_dim = vector_dim
+        self._agent_id = agent_id
+        self._project_name = project_name
 
     def create_episodic_from_reflection(self, task: Task, reflection: Reflection) -> list[MemoryEntry]:
         """Always creates one EPISODIC entry. If reflection.become_long_term_knowledge,
@@ -114,6 +122,8 @@ class MemoryStore:
                 reflection_id=reflection_id,
                 tags_json=json.dumps(tags),
                 embedding_json=json.dumps(embedding),
+                agent_id=self._agent_id,
+                project_name=self._project_name,
             )
             session.add(entry)
             session.commit()

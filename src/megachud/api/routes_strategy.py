@@ -82,6 +82,8 @@ def create_strategy(payload: StrategyCreateRequest, request: Request) -> Strateg
             plan_template_json=json.dumps(payload.plan_template),
             parameters_json=json.dumps(payload.parameters),
             tags_json=json.dumps(payload.tags),
+            agent_id=request.app.state.current_agent_id,
+            project_name=request.app.state.settings.project_name,
         )
         session.add(strategy)
         session.commit()
@@ -127,7 +129,14 @@ def update_strategy(strategy_id: str, payload: StrategyUpdateRequest, request: R
 def invoke(strategy_id: str, payload: StrategyInvokeRequest, request: Request) -> StrategyInvokeResponse:
     session_factory = request.app.state.session_factory
     try:
-        task_id = invoke_strategy(session_factory, strategy_id, payload.params, title=payload.title)
+        task_id = invoke_strategy(
+            session_factory,
+            strategy_id,
+            payload.params,
+            title=payload.title,
+            agent_id=request.app.state.current_agent_id,
+            project_name=request.app.state.settings.project_name,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="strategy not found") from exc
     except StrategyParameterError as exc:

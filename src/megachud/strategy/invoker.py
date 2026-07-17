@@ -45,6 +45,8 @@ def invoke_strategy(
     strategy_id: str,
     params: dict[str, Any],
     title: str | None = None,
+    agent_id: str | None = None,
+    project_name: str | None = None,
 ) -> str:
     """Renders plan_json from the strategy template + params and inserts a
     Task row exactly the way routes_tasks.create_task does — no new
@@ -63,6 +65,8 @@ def invoke_strategy(
             title=title or f"{strategy.workflow_name} v{strategy.version}",
             prompt=f"invoked from strategy {strategy.id} ({strategy.workflow_name} v{strategy.version})",
             plan_json=json.dumps(plan),
+            agent_id=agent_id,
+            project_name=project_name,
         )
         session.add(task)
         session.commit()

@@ -19,7 +19,13 @@ def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateRespo
 
     session = session_factory()
     try:
-        task = Task(title=payload.title, prompt=payload.prompt, plan_json=json.dumps(plan))
+        task = Task(
+            title=payload.title,
+            prompt=payload.prompt,
+            plan_json=json.dumps(plan),
+            agent_id=request.app.state.current_agent_id,
+            project_name=request.app.state.settings.project_name,
+        )
         session.add(task)
         session.commit()
         task_id = task.id
@@ -34,11 +40,14 @@ def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateRespo
 
 
 @router.get("/tasks", response_model=list[TaskSummary])
-def list_tasks(request: Request) -> list[TaskSummary]:
+def list_tasks(request: Request, agent_id: str | None = None) -> list[TaskSummary]:
     session_factory = request.app.state.session_factory
     session = session_factory()
     try:
-        tasks = session.query(Task).order_by(Task.created_at.desc()).all()
+        query = session.query(Task)
+        if agent_id:
+            query = query.filter_by(agent_id=agent_id)
+        tasks = query.order_by(Task.created_at.desc()).all()
         return [
             TaskSummary(
                 id=t.id,

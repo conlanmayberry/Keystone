@@ -29,8 +29,8 @@ def to_summary(report: AnalyticsReport) -> AnalyticsReportSummary:
 
 
 @router.get("/analytics", response_model=AnalyticsReportSummary)
-def get_analytics(request: Request, window_hours: int = 24) -> AnalyticsReportSummary:
+def get_analytics(request: Request, window_hours: int = 24, agent_id: str | None = None) -> AnalyticsReportSummary:
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(hours=window_hours)
-    report = build_analytics_report(request.app.state.session_factory, window_start, now)
+    report = build_analytics_report(request.app.state.session_factory, window_start, now, agent_id=agent_id)
     return to_summary(report)
