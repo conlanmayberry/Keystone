@@ -12,12 +12,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from megachud.api import (
+    routes_analytics,
     routes_approvals,
     routes_bottleneck,
     routes_curiosity,
     routes_experiment,
     routes_memory,
     routes_promotion,
+    routes_review,
+    routes_routing,
     routes_strategy,
     routes_tasks,
     ws,
@@ -36,6 +39,7 @@ from megachud.orchestrator.approval_gate import ApprovalGate
 from megachud.orchestrator.engine import Orchestrator
 from megachud.reflection.engine import ReflectionEngine
 from megachud.reflection.handler import TaskCompletionHandler
+from megachud.routing.engine import ConfiguredModelRouter, ModelProfile
 from megachud.strategy.metrics import StrategyMetricsHandler
 from megachud.tools.file_tools import ReadFileTool, WriteFileTool
 from megachud.tools.registry import ToolRegistry
@@ -106,6 +110,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         workspace_root=settings.workspace_root,
     )
 
+    model_router = ConfiguredModelRouter(
+        [
+            ModelProfile(
+                name=p.name,
+                cost_per_1k_input_tokens=p.cost_per_1k_input_tokens,
+                cost_per_1k_output_tokens=p.cost_per_1k_output_tokens,
+                quality_tier=p.quality_tier,
+                est_latency_ms=p.est_latency_ms,
+            )
+            for p in settings.model_routing.profiles
+        ]
+    )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bus.bind_loop(asyncio.get_running_loop())
@@ -122,6 +139,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.tool_registry = registry
     app.state.memory_store = memory_store
     app.state.vault_writer = vault_writer
+    app.state.model_router = model_router
     app.state.executor = ThreadPoolExecutor(max_workers=4)
 
     app.include_router(routes_tasks.router)
@@ -132,6 +150,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(routes_promotion.router)
     app.include_router(routes_curiosity.router)
     app.include_router(routes_bottleneck.router)
+    app.include_router(routes_analytics.router)
+    app.include_router(routes_review.router)
+    app.include_router(routes_routing.router)
     app.include_router(ws.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

@@ -218,3 +218,65 @@ class ProposeExperimentRequest(BaseModel):
     subject: str
     detail: str
     severity: float
+
+
+class AnalyticsReportSummary(BaseModel):
+    window_start: str
+    window_end: str
+    task_counts_by_status: dict[str, int]
+    tool_call_counts: dict[str, int]
+    tool_failure_rates: dict[str, float]
+    event_counts_by_type: dict[str, int]
+    strategy_success_rates: dict[str, float]
+    experiment_outcome_counts: dict[str, int]
+    become_long_term_knowledge_rate: float
+    total_cost_usd: float
+    total_tokens_input: int
+    total_tokens_output: int
+    cost_data_available: bool
+
+
+class ReviewReportSummary(BaseModel):
+    kind: str
+    window_start: str
+    window_end: str
+    accomplishments: list[str]
+    blockers: list[str]
+    learning: list[str]
+    costs: dict[str, Any]
+    metrics: AnalyticsReportSummary
+    workflow_evolution: list[dict[str, Any]] | None = None
+    strategy_effectiveness: list[dict[str, Any]] | None = None
+    model_routing_summary: dict[str, int] | None = None
+    experiments_summary: list[dict[str, Any]] | None = None
+    recommendations: list[str] | None = None
+
+
+class ReviewSummary(BaseModel):
+    id: str
+    kind: str
+    window_start: str
+    window_end: str
+    created_at: str
+
+
+class ModelProfileSummary(BaseModel):
+    name: str
+    cost_per_1k_input_tokens: float
+    cost_per_1k_output_tokens: float
+    quality_tier: int
+    est_latency_ms: int
+
+
+class RouteSimulateRequest(BaseModel):
+    task_type: str
+    quality_target: int
+    est_tokens_input: int = 0
+    est_tokens_output: int = 0
+
+
+class RoutingDecisionSummary(BaseModel):
+    chosen_model: str
+    reason: str
+    estimated_cost_usd: float
+    candidates_considered: list[str]
