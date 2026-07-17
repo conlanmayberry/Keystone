@@ -82,6 +82,19 @@ class PluginsConfig(BaseModel):
     active_model_router: str | None = None
 
 
+class FetchConfig(BaseModel):
+    max_response_bytes: int = 2_000_000
+    timeout_seconds: float = 15.0
+    max_redirects: int = 5
+
+
+class InternetConfig(BaseModel):
+    # Empty = unrestricted — fetching any public URL is allowed by default.
+    domain_allowlist: list[str] = []
+    domain_denylist: list[str] = []
+    fetch: FetchConfig = FetchConfig()
+
+
 class LLMConfig(BaseModel):
     default_reflection_model: str = "claude-haiku-4-5-20251001"
     default_planner_model: str = "claude-sonnet-5"
@@ -116,6 +129,7 @@ class Settings(BaseModel):
     review: ReviewConfig = ReviewConfig()
     plugins: PluginsConfig = PluginsConfig()
     llm: LLMConfig = LLMConfig()
+    internet: InternetConfig = InternetConfig()
 
     @classmethod
     def load(

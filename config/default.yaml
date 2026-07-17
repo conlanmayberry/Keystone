@@ -93,3 +93,15 @@ llm:
   planner_max_tokens: 4096
   curiosity_max_tokens: 1024
   timeout_seconds: 60.0
+
+# http_fetch/download_file/web_search safety knobs. Empty allow/deny lists
+# = unrestricted (any public domain permitted) — the SSRF/private-network
+# guard in internet/url_safety.py always applies regardless and is not a
+# feature toggle.
+internet:
+  domain_allowlist: []
+  domain_denylist: []
+  fetch:
+    max_response_bytes: 2000000
+    timeout_seconds: 15.0
+    max_redirects: 5
