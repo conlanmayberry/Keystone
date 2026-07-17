@@ -45,7 +45,10 @@ function connectLiveFeed() {
 }
 
 async function refreshTasks() {
-  const tasks = await fetchJson("/tasks");
+  const agentId = el("tasks-agent-filter").value;
+  const params = new URLSearchParams();
+  if (agentId) params.set("agent_id", agentId);
+  const tasks = await fetchJson(`/tasks?${params.toString()}`);
   const tbody = document.querySelector("#tasks-table tbody");
   tbody.innerHTML = "";
   for (const task of tasks) {
@@ -486,7 +489,10 @@ function renderAnalytics(report) {
 
 async function refreshAnalytics() {
   const windowHours = parseInt(el("analytics-window-hours").value, 10) || 24;
-  const report = await fetchJson(`/analytics?window_hours=${windowHours}`);
+  const agentId = el("analytics-agent-filter").value;
+  const params = new URLSearchParams({ window_hours: String(windowHours) });
+  if (agentId) params.set("agent_id", agentId);
+  const report = await fetchJson(`/analytics?${params.toString()}`);
   renderAnalytics(report);
 }
 
@@ -619,6 +625,54 @@ el("new-task-form").addEventListener("submit", async (e) => {
   }
 });
 
+// --- Plugins ---
+
+async function refreshPlugins() {
+  const results = await fetchJson("/plugins");
+  const tbody = document.querySelector("#plugins-table tbody");
+  if (results.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="4">No plugins configured.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = "";
+  for (const r of results) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.name}</td>
+      <td>${r.source}</td>
+      <td class="status-${r.success ? "succeeded" : "failed"}">${r.success ? "loaded" : "failed"}</td>
+      <td>${r.error ?? ""}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+// --- Meta / identity header + agent filters ---
+
+async function refreshMeta() {
+  const meta = await fetchJson("/meta");
+  el("identity-label").textContent = `project: ${meta.project_name} · agent: ${meta.agent_name}`;
+}
+
+async function populateAgentFilters() {
+  const agents = await fetchJson("/agents");
+  for (const selectId of ["tasks-agent-filter", "analytics-agent-filter"]) {
+    const select = el(selectId);
+    const current = select.value;
+    select.innerHTML = `<option value="">All agents</option>`;
+    for (const a of agents) {
+      const option = document.createElement("option");
+      option.value = a.id;
+      option.textContent = a.name;
+      select.appendChild(option);
+    }
+    select.value = current;
+  }
+}
+
+el("tasks-agent-filter").addEventListener("change", refreshTasks);
+el("analytics-agent-filter").addEventListener("change", refreshAnalytics);
+
 connectLiveFeed();
 refreshTasks();
 refreshApprovals();
@@ -630,6 +684,13 @@ refreshBottlenecks();
 refreshAnalytics();
 refreshReviewHistory();
 refreshRoutingProfiles();
+refreshPlugins();
+refreshMeta();
+populateAgentFilters().then(() => {
+  // Re-apply once agent options exist, in case a filter was mid-selection.
+  refreshTasks();
+  refreshAnalytics();
+});
 setInterval(refreshTasks, 5000);
 setInterval(refreshApprovals, 3000);
 setInterval(refreshStrategies, 5000);

@@ -20,6 +20,7 @@ from megachud.api import (
     routes_experiment,
     routes_memory,
     routes_meta,
+    routes_plugins,
     routes_promotion,
     routes_review,
     routes_routing,
@@ -187,6 +188,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(routes_routing.router)
     app.include_router(routes_agents.router)
     app.include_router(routes_meta.router)
+    app.include_router(routes_plugins.router)
     app.include_router(ws.router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

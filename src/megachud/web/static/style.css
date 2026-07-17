@@ -28,6 +28,7 @@ header {
 
 header h1 { margin: 0; font-size: 20px; }
 .subtitle { color: var(--muted); font-size: 13px; }
+.identity-label { margin-left: auto; color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
 
 main {
   display: grid;
@@ -208,6 +209,7 @@ th { color: var(--muted); font-weight: 500; }
   align-items: center;
 }
 .analytics-controls input,
+.analytics-controls select,
 .review-controls select { width: auto; margin-top: 0; }
 .analytics-controls button,
 .review-controls button { width: auto; padding: 6px 12px; }
@@ -217,3 +219,6 @@ th { color: var(--muted); font-weight: 500; }
 
 #routing-simulate-form { margin-bottom: 12px; }
 #routing-decision { margin-bottom: 12px; }
+
+.agent-filter-row { margin-bottom: 10px; font-size: 13px; color: var(--muted); }
+.agent-filter-row select { width: auto; margin-top: 0; margin-left: 4px; display: inline-block; }

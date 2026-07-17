@@ -8,7 +8,8 @@
 <body>
   <header>
     <h1>MegaChud</h1>
-    <span class="subtitle">Phase 1 — Reliable Core · Phase 2 — Memory · Phase 3 — Improvement · Phase 4 — Optimization</span>
+    <span class="subtitle">Phase 1 — Reliable Core · Phase 2 — Memory · Phase 3 — Improvement · Phase 4 — Optimization · Phase 5 — Platform</span>
+    <span class="identity-label" id="identity-label"></span>
   </header>
 
   <main>
@@ -46,6 +47,9 @@
 
     <section class="panel" id="tasks-panel">
       <h2>Task History</h2>
+      <div class="agent-filter-row">
+        <label>Agent <select id="tasks-agent-filter"><option value="">All agents</option></select></label>
+      </div>
       <table id="tasks-table">
         <thead>
           <tr><th>Title</th><th>Status</th><th>Created</th><th>Completed</th></tr>
@@ -123,6 +127,7 @@
       <h2>Analytics</h2>
       <div class="analytics-controls">
         <label>Window (hours) <input type="number" id="analytics-window-hours" value="24" /></label>
+        <label>Agent <select id="analytics-agent-filter"><option value="">All agents</option></select></label>
         <button id="analytics-refresh-btn" type="button">Refresh</button>
       </div>
       <div id="analytics-cost-banner"></div>
@@ -159,6 +164,17 @@
       <table id="routing-profiles-table">
         <thead>
           <tr><th>Name</th><th>Quality tier</th><th>Cost/1k in</th><th>Cost/1k out</th><th>Latency (ms)</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="panel" id="plugins-panel">
+      <h2>Plugins</h2>
+      <p class="memory-meta">Read-only — reflects what loaded at startup. Enable/disable via config + restart.</p>
+      <table id="plugins-table">
+        <thead>
+          <tr><th>Name</th><th>Source</th><th>Status</th><th>Error</th></tr>
         </thead>
         <tbody></tbody>
       </table>
