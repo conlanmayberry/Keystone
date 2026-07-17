@@ -458,6 +458,144 @@ async function refreshBottlenecks() {
 
 el("bottleneck-scan-btn").addEventListener("click", refreshBottlenecks);
 
+// --- Analytics ---
+
+function renderAnalytics(report) {
+  const banner = el("analytics-cost-banner");
+  banner.innerHTML = report.cost_data_available
+    ? `<div class="cost-banner success">Total cost: $${report.total_cost_usd.toFixed(4)} (in=${report.total_tokens_input} out=${report.total_tokens_output} tokens)</div>`
+    : `<div class="cost-banner">No cost data yet — no LLM calls have been made in this codebase.</div>`;
+
+  const statusRows = Object.entries(report.task_counts_by_status)
+    .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
+    .join("") || `<tr><td colspan="2">none</td></tr>`;
+  const toolRows = Object.entries(report.tool_call_counts)
+    .map(([tool, count]) => `<tr><td>${tool}</td><td>${count}</td><td>${((report.tool_failure_rates[tool] ?? 0) * 100).toFixed(0)}%</td></tr>`)
+    .join("") || `<tr><td colspan="3">none</td></tr>`;
+  const strategyRows = Object.entries(report.strategy_success_rates)
+    .map(([wf, rate]) => `<tr><td>${wf}</td><td>${(rate * 100).toFixed(0)}%</td></tr>`)
+    .join("") || `<tr><td colspan="2">none</td></tr>`;
+
+  el("analytics-results").innerHTML = `
+    <table class="metric-table"><thead><tr><th>Task status</th><th>Count</th></tr></thead><tbody>${statusRows}</tbody></table>
+    <table class="metric-table"><thead><tr><th>Tool</th><th>Calls</th><th>Failure rate</th></tr></thead><tbody>${toolRows}</tbody></table>
+    <table class="metric-table"><thead><tr><th>Workflow</th><th>Success rate</th></tr></thead><tbody>${strategyRows}</tbody></table>
+    <div class="memory-meta">become_long_term_knowledge_rate: ${(report.become_long_term_knowledge_rate * 100).toFixed(0)}%</div>
+  `;
+}
+
+async function refreshAnalytics() {
+  const windowHours = parseInt(el("analytics-window-hours").value, 10) || 24;
+  const report = await fetchJson(`/analytics?window_hours=${windowHours}`);
+  renderAnalytics(report);
+}
+
+el("analytics-refresh-btn").addEventListener("click", refreshAnalytics);
+
+// --- Reviews ---
+
+function renderReviewReport(report) {
+  const costLine = report.costs.cost_data_available
+    ? `Total cost: $${report.costs.total_cost_usd.toFixed(4)}`
+    : "No cost data yet.";
+
+  let extra = "";
+  if (report.kind === "weekly") {
+    const evo = (report.workflow_evolution || [])
+      .map((w) => `<li>${w.workflow_name}: v${w.active_version ?? "-"} — ${w.version_count} version(s), active success ${w.active_success_rate !== null ? (w.active_success_rate * 100).toFixed(0) + "%" : "n/a"}</li>`)
+      .join("");
+    const routing = Object.entries(report.model_routing_summary || {}).map(([m, n]) => `<li>${m}: ${n} decision(s)</li>`).join("");
+    const recs = (report.recommendations || []).map((r) => `<li>${r}</li>`).join("");
+    extra = `
+      <h4>Workflow Evolution</h4><ul>${evo || "<li>none</li>"}</ul>
+      <h4>Model Routing Summary</h4><ul>${routing || "<li>none</li>"}</ul>
+      <h4>Recommendations</h4><ul>${recs || "<li>none</li>"}</ul>
+    `;
+  }
+
+  el("review-report").innerHTML = `
+    <div><strong>${report.kind}</strong> — ${new Date(report.window_start).toLocaleString()} to ${new Date(report.window_end).toLocaleString()}</div>
+    <h4>Accomplishments</h4><ul>${report.accomplishments.map((a) => `<li>${a}</li>`).join("") || "<li>none</li>"}</ul>
+    <h4>Blockers</h4><ul>${report.blockers.map((b) => `<li>${b}</li>`).join("") || "<li>none</li>"}</ul>
+    <h4>Learning</h4><ul>${report.learning.map((l) => `<li>${l}</li>`).join("") || "<li>none</li>"}</ul>
+    <div class="memory-meta">${costLine}</div>
+    ${extra}
+  `;
+}
+
+async function previewReview() {
+  const kind = el("review-kind-select").value;
+  renderReviewReport(await fetchJson(`/reviews/${kind}/preview`));
+}
+
+async function generateReview() {
+  const kind = el("review-kind-select").value;
+  renderReviewReport(await fetchJson(`/reviews/${kind}/generate`, { method: "POST" }));
+  refreshReviewHistory();
+}
+
+async function refreshReviewHistory() {
+  const reviews = await fetchJson("/reviews");
+  const container = el("review-history");
+  if (reviews.length === 0) {
+    container.innerHTML = "No reviews generated yet.";
+    return;
+  }
+  container.innerHTML = "";
+  for (const r of reviews) {
+    const div = document.createElement("div");
+    div.className = "memory-item";
+    div.innerHTML = `<div><strong>${r.kind}</strong> — ${new Date(r.created_at).toLocaleString()}</div>`;
+    container.appendChild(div);
+  }
+}
+
+el("review-preview-btn").addEventListener("click", previewReview);
+el("review-generate-btn").addEventListener("click", generateReview);
+
+// --- Model Routing ---
+
+async function refreshRoutingProfiles() {
+  const profiles = await fetchJson("/routing/profiles");
+  const tbody = document.querySelector("#routing-profiles-table tbody");
+  if (profiles.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5">No model profiles configured.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = "";
+  for (const p of profiles) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${p.name}</td><td>${p.quality_tier}</td><td>$${p.cost_per_1k_input_tokens}</td><td>$${p.cost_per_1k_output_tokens}</td><td>${p.est_latency_ms}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+el("routing-simulate-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const container = el("routing-decision");
+  try {
+    const decision = await fetchJson("/routing/simulate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        task_type: el("routing-task-type").value,
+        quality_target: parseInt(el("routing-quality-target").value, 10),
+        est_tokens_input: parseInt(el("routing-est-input").value, 10) || 0,
+        est_tokens_output: parseInt(el("routing-est-output").value, 10) || 0,
+      }),
+    });
+    container.innerHTML = `
+      <div class="memory-item">
+        <div><strong>Chosen: ${decision.chosen_model}</strong> — est. cost $${decision.estimated_cost_usd.toFixed(6)}</div>
+        <div class="memory-meta">${decision.reason}</div>
+        <div class="memory-meta">Candidates: ${decision.candidates_considered.join(", ")}</div>
+      </div>
+    `;
+  } catch (err) {
+    container.innerHTML = `<div class="memory-meta" style="color: var(--danger)">Error: ${err.message}</div>`;
+  }
+});
+
 el("new-task-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const status = el("new-task-status");
@@ -489,8 +627,12 @@ refreshStrategies();
 refreshExperiments();
 refreshCuriosity();
 refreshBottlenecks();
+refreshAnalytics();
+refreshReviewHistory();
+refreshRoutingProfiles();
 setInterval(refreshTasks, 5000);
 setInterval(refreshApprovals, 3000);
 setInterval(refreshStrategies, 5000);
 setInterval(refreshExperiments, 5000);
 setInterval(refreshCuriosity, 3000);
+setInterval(refreshAnalytics, 15000);

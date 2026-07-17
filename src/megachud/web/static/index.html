@@ -8,7 +8,7 @@
 <body>
   <header>
     <h1>MegaChud</h1>
-    <span class="subtitle">Phase 1 — Reliable Core · Phase 2 — Memory · Phase 3 — Improvement</span>
+    <span class="subtitle">Phase 1 — Reliable Core · Phase 2 — Memory · Phase 3 — Improvement · Phase 4 — Optimization</span>
   </header>
 
   <main>
@@ -117,6 +117,51 @@
       <h2>Bottleneck Findings</h2>
       <button id="bottleneck-scan-btn" type="button">Scan now</button>
       <div id="bottleneck-list"></div>
+    </section>
+
+    <section class="panel" id="analytics-panel">
+      <h2>Analytics</h2>
+      <div class="analytics-controls">
+        <label>Window (hours) <input type="number" id="analytics-window-hours" value="24" /></label>
+        <button id="analytics-refresh-btn" type="button">Refresh</button>
+      </div>
+      <div id="analytics-cost-banner"></div>
+      <div id="analytics-results"></div>
+    </section>
+
+    <section class="panel" id="review-panel">
+      <h2>Reviews</h2>
+      <div class="review-controls">
+        <select id="review-kind-select">
+          <option value="hourly">Hourly</option>
+          <option value="weekly">Weekly</option>
+        </select>
+        <button id="review-preview-btn" type="button">Preview</button>
+        <button id="review-generate-btn" type="button">Generate now</button>
+      </div>
+      <div id="review-report">No review generated yet — click Preview or Generate now.</div>
+      <h3>Past Reviews</h3>
+      <div id="review-history"></div>
+    </section>
+
+    <section class="panel" id="routing-panel">
+      <h2>Model Routing</h2>
+      <p class="memory-meta">Simulation only — no real model is ever called.</p>
+      <form id="routing-simulate-form">
+        <label>Task type <input type="text" id="routing-task-type" value="coding" required /></label>
+        <label>Quality target <input type="number" id="routing-quality-target" value="2" required /></label>
+        <label>Est. input tokens <input type="number" id="routing-est-input" value="1000" /></label>
+        <label>Est. output tokens <input type="number" id="routing-est-output" value="500" /></label>
+        <button type="submit">Simulate route</button>
+      </form>
+      <div id="routing-decision"></div>
+      <h3>Configured Profiles</h3>
+      <table id="routing-profiles-table">
+        <thead>
+          <tr><th>Name</th><th>Quality tier</th><th>Cost/1k in</th><th>Cost/1k out</th><th>Latency (ms)</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </section>
   </main>
 
