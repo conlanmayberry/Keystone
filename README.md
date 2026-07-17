@@ -6,8 +6,9 @@ Self-improving autonomous AI operating system. This repo implements all
 curiosity, bottleneck detection), **Phase 4** (optimization: model routing
 infrastructure, analytics, hourly/weekly reviews), and **Phase 5**
 (platform: dynamic plugin loading, structural multi-agent/multi-project
-readiness, advanced dashboards). See the planning docs for the full
-picture:
+readiness, advanced dashboards), plus a first real **LLM integration**
+(Anthropic Claude) layered on top once all 5 phases were done — see
+"LLM Integration" below. See the planning docs for the full picture:
 
 - [Master_Specification.md](Master_Specification.md) — vision, design
   principles, and the full set of components the platform grows into.
@@ -24,14 +25,18 @@ through a human approval gate before it runs. This mechanism is fully
 built and tested now (see `tests/fixtures/dummy_tools.py`) so that later
 phases can add real internet-access and money-related tools — an explicit
 acceptance criterion for the finished product — without reworking the
-orchestrator. Phase 3's Curiosity Engine and Phase 4's Model Selection
-Engine both deliberately stay on the local side of that same boundary:
-curiosity searches only existing memory (no real web search), and model
-routing is a config-driven decision framework with no LLM call anywhere
-in the codebase yet — both are explicit swap points for real
-implementations later. Phase 5's plugin system is the one exception:
-dynamic runtime loading of external Python code is real, deliberately
-scoped to local-only, explicit-opt-in sources (see "Plugins" below).
+orchestrator. Curiosity still searches only existing local memory (no
+real web search), and the Model Selection Engine (`routing/`) is still a
+config-driven decision framework with no LLM call inside it anywhere —
+picking a model is still pure arithmetic, never itself an LLM call. What
+*has* changed since Phase 5: three other components (reflection
+generation, task planning, curiosity question/objective text) now have
+real Anthropic Claude-backed implementations, gated entirely behind
+whether `ANTHROPIC_API_KEY` is configured — see "LLM Integration" below.
+Phase 5's plugin system was the first exception to the local-only
+boundary: dynamic runtime loading of external Python code is real,
+deliberately scoped to local-only, explicit-opt-in sources (see
+"Plugins" below).
 
 ## Setup
 
@@ -55,13 +60,15 @@ has side effects — see the note in `src/megachud/api/app.py`):
 ```
 
 Then open http://127.0.0.1:8000. The dashboard lets you submit a task (a
-title, prompt, and an explicit JSON list of tool calls — there is no
-autonomous planner yet), watch the live activity feed over WebSocket,
-review task history, approve/deny any pending `high_irreversible` tool
-calls, browse/search/add memory, invoke strategies and manage
-experiments/promotions, answer curiosity questions, scan for bottlenecks,
-and review analytics/hourly/weekly reports plus a model-routing simulator,
-browse loaded plugins, and filter Task History/Analytics by agent.
+title, prompt, and either an explicit JSON list of tool calls or, if an
+`ANTHROPIC_API_KEY` is configured, an "Auto-plan (LLM)" checkbox that has
+the configured LLM produce the plan instead), watch the live activity
+feed over WebSocket, review task history, approve/deny any pending
+`high_irreversible` tool calls, browse/search/add memory, invoke
+strategies and manage experiments/promotions, answer curiosity questions,
+scan for bottlenecks, and review analytics/hourly/weekly reports plus a
+model-routing simulator, browse loaded plugins, and filter Task
+History/Analytics by agent.
 
 Every completed task automatically generates a deterministic `Reflection`
 and one or more `MemoryEntry` rows, mirrored as Markdown notes under
@@ -109,12 +116,13 @@ end against the real dev DB (Phase 3's acceptance criterion).
 .venv/Scripts/python scripts/run_optimization_demo.py
 ```
 
-Simulates a few model-routing decisions (logged as `Event` rows, no real
-LLM call), builds an analytics report, and generates + persists an
-hourly and a weekly review — showing the honest `cost_data_available:
-False` state throughout, since no LLM call site exists in the codebase
-yet. Run `run_experiment_demo.py` first so there's real activity to
-report on.
+Simulates a few model-routing decisions (logged as `Event` rows — model
+*selection* itself is still pure config arithmetic, no LLM call), builds
+an analytics report, and generates + persists an hourly and a weekly
+review. With no `ANTHROPIC_API_KEY` configured this honestly shows
+`cost_data_available: False` throughout, since nothing has populated
+`Event.cost_usd` yet; see `run_llm_demo.py` below for the real-cost path.
+Run `run_experiment_demo.py` first so there's real activity to report on.
 
 ```
 .venv/Scripts/python scripts/run_platform_demo.py
@@ -127,6 +135,16 @@ approval gate already applies uniformly regardless of a tool's origin).
 Also prints the seeded default `Agent` row (Phase 5's structural
 multi-agent readiness).
 
+```
+.venv/Scripts/python scripts/run_llm_demo.py
+```
+
+Run this once before adding a real key to `.env` (proves nothing crashes
+and every LLM-backed component falls back to its deterministic
+predecessor) and once after (proves all 3 LLM swap-points — reflection,
+planning, curiosity — plus real cost/token tracking work end to end
+against the live Anthropic API). See "LLM Integration" below for setup.
+
 ## Plugins
 
 See [plugins/README.md](plugins/README.md) for the full mechanism and
@@ -138,6 +156,79 @@ config allow-listing (nothing loads unless named), full `Event`-logged
 observability, and `Tool.risk_level` enforcement before a plugin tool
 ever reaches the real tool set. Python has no in-process sandbox — only
 enable plugins you trust.
+
+## LLM Integration
+
+The first real LLM calls in this codebase, added after all 5 phases were
+complete. `LLMClient` (`src/megachud/llm/client.py`) is a 4th ABC
+swap-point alongside `Tool`, `ReflectionGenerator`, and `ModelRouter` —
+`AnthropicLLMClient` is the one real implementation, backed by the
+`anthropic` SDK.
+
+**Setup**: copy [.env.example](.env.example) to `.env` and set
+`ANTHROPIC_API_KEY=sk-ant-...`. `Settings.load()` picks it up
+automatically via a pure `dotenv_values()`-based loader (never
+`load_dotenv()`, so nothing mutates `os.environ` globally); a real
+environment variable always takes precedence over `.env`. The key is
+stored as a `pydantic.SecretStr` and never appears in a `repr()`/`str()`
+of `Settings`. **No real key is ever committed** — `.env` is gitignored,
+and `.env.example` ships with an empty value.
+
+**Graceful degradation is the whole design.** `create_app()` never
+raises and behaves identically to before this integration when no key is
+configured — every LLM-backed component conditionally falls back to its
+original deterministic implementation:
+
+- **Reflection** (`reflection/llm_generator.py::LLMReflectionGenerator`):
+  fills the `ReflectionGenerator` swap-point only if no plugin already
+  claimed it. Falls back to `DeterministicReflectionGenerator` on any
+  `LLMError` or malformed response — `generate()` never raises.
+- **Task planning** (`orchestrator/llm_planner.py::LLMTaskPlanner`): a
+  genuinely new capability, not a fallback of an existing one. One-shot
+  only — the LLM produces a complete tool-call plan in a single call,
+  which then runs through the existing `Orchestrator.run_task`
+  completely unchanged (same finite-plan execution, same evaluation,
+  same approval gate). There is deliberately no iterative/ReAct
+  re-planning loop, preserving the no-runaway-agent property every
+  earlier phase relied on. Exposed via `POST /tasks` with
+  `"auto_plan": true` instead of a supplied `tool_calls` list, and the
+  dashboard's New Task panel has a matching "Auto-plan (LLM)" checkbox.
+  A hallucinated tool name or invalid args is rejected (`422`) via
+  `ToolRegistry.get()` + `Tool.validate_args()` — the same validation the
+  orchestrator would eventually hit, performed before any `Task` row is
+  created — with no retry/re-prompt. `503` if unconfigured, `502` on a
+  real API request failure.
+- **Curiosity text** (`curiosity/llm_generator.py`): swaps in richer
+  LLM-authored question/objective wording; every other part of
+  `CuriosityHandler` (real local memory search, the self-match filter,
+  the `become_long_term_knowledge` gate, the similarity threshold) is
+  untouched. Falls back to the original template strings on failure.
+
+**Cost/token tracking is now real.** `Event.cost_usd`/`tokens_input`/
+`tokens_output` (unused since Phase 1) are populated on every successful
+LLM call via `routing/engine.py::compute_cost_usd`, logged as
+`Event(event_type="llm_call")`. Costs are **never fabricated** — an event
+is only logged when a component actually made a real call and got real
+usage numbers back (e.g. the deterministic curiosity path always reports
+0 tokens and logs nothing). This is what finally makes Analytics'
+`cost_data_available` become `True`.
+
+Model IDs and approximate per-1K-token pricing live in
+`config/default.yaml`'s `model_routing.profiles` (verify current pricing
+before relying on it) and are shared by `ConfiguredModelRouter` and every
+LLM consumer's cost computation. Per-consumer model choice and
+`max_tokens` live in the `llm:` config section
+(`default_reflection_model`, `default_planner_model`,
+`default_curiosity_model`, etc.).
+
+Structured output uses **forced tool-use** (Anthropic's `tool_choice`),
+not "respond in JSON" + `json.loads` — the response is validated against
+the tool's `input_schema` server-side before it's ever returned, matching
+this codebase's existing validate-everything convention. See
+`scripts/run_llm_demo.py` for an end-to-end proof of both the
+unconfigured (fallback) and configured (real API) paths. Every test in
+the suite uses `tests/fixtures/fake_llm_client.py`'s `FakeLLMClient` — no
+real network call happens anywhere in `pytest`.
 
 ## Tests
 
@@ -263,6 +354,29 @@ enable plugins you trust.
   `agent_id` column and are filtered; tool/event/cost-derived stats are
   read straight from `Event` rows with no join to `Task`, and `Event`
   isn't one of the four tagged tables, so they stay honestly unfiltered.
+
+### LLM Integration
+- **`LLMClient`** (`llm/client.py`): the 4th ABC swap-point.
+  `AnthropicLLMClient` maps SDK exceptions to `LLMRequestError(retryable=
+  ...)` (`APIConnectionError`/`RateLimitError` → retryable,
+  `APIStatusError` → retryable only if `status_code >= 500`) so no
+  `anthropic.*` exception type ever leaks past this module. Every
+  consumer and every test depends only on `megachud.llm.client`, never
+  the `anthropic` package directly — `tests/fixtures/fake_llm_client.py`
+  is the double used everywhere else in the suite.
+- **`.env` loading** (`config.py::_load_dotenv`): a pure function around
+  `dotenv_values()` (never `load_dotenv()`, which mutates `os.environ`
+  globally) — zero side effects, so tests can point it at an arbitrary
+  `tmp_path` file with no cross-test leakage. Precedence (`os.environ`
+  wins over `.env`) is resolved once, at the `Settings.load()` call site.
+  `anthropic_api_key` is a `pydantic.SecretStr`.
+- **`app.py` wiring**: every LLM component is constructed conditionally
+  on `settings.anthropic_api_key` being set, and `LLMReflectionGenerator`
+  only fills `reflection_generator` if a plugin hasn't already claimed
+  that swap-point — so plugin-provided reflection generators still win.
+  A single dispatch-free `EventLogger` (no `on_event`) is shared by both
+  plugin-load events and `llm_call` cost events, since neither should
+  trigger the reflection/curiosity/strategy pipeline.
 
 ### Dashboard
 - **`api/`, `web/static/`**: FastAPI + plain HTML/JS, no build step.

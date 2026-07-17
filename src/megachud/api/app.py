@@ -30,20 +30,24 @@ from megachud.api import (
 )
 from megachud.config import Settings
 from megachud.curiosity.engine import CuriosityHandler
+from megachud.curiosity.llm_generator import LLMCuriosityTextGenerator
 from megachud.db import ensure_agent_project_columns, get_engine, get_or_create_agent, init_db, make_session_factory
 from megachud.evaluation.checks import check_python_syntax, check_tests_pass, check_tool_calls_succeeded
 from megachud.evaluation.engine import EvaluationEngine
 from megachud.events.bus import EventBus
 from megachud.events.dispatcher import EventDispatcher
 from megachud.events.logger import EventLogger
+from megachud.llm.client import AnthropicLLMClient, LLMClient
 from megachud.memory.store import MemoryStore
 from megachud.obsidian.vault import VaultWriter
 from megachud.orchestrator.approval_gate import ApprovalGate
 from megachud.orchestrator.engine import Orchestrator
+from megachud.orchestrator.llm_planner import LLMTaskPlanner
 from megachud.plugins.loader import load_plugins
 from megachud.plugins.registry import PluginRegistry
 from megachud.reflection.engine import ReflectionEngine
 from megachud.reflection.handler import TaskCompletionHandler
+from megachud.reflection.llm_generator import LLMReflectionGenerator
 from megachud.routing.engine import ConfiguredModelRouter, ModelProfile
 from megachud.strategy.metrics import StrategyMetricsHandler
 from megachud.tools.file_tools import ReadFileTool, WriteFileTool
@@ -78,24 +82,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
 
-    default_model_router = ConfiguredModelRouter(
-        [
-            ModelProfile(
-                name=p.name,
-                cost_per_1k_input_tokens=p.cost_per_1k_input_tokens,
-                cost_per_1k_output_tokens=p.cost_per_1k_output_tokens,
-                quality_tier=p.quality_tier,
-                est_latency_ms=p.est_latency_ms,
-            )
-            for p in settings.model_routing.profiles
-        ]
-    )
+    model_profiles = [
+        ModelProfile(
+            name=p.name,
+            cost_per_1k_input_tokens=p.cost_per_1k_input_tokens,
+            cost_per_1k_output_tokens=p.cost_per_1k_output_tokens,
+            quality_tier=p.quality_tier,
+            est_latency_ms=p.est_latency_ms,
+        )
+        for p in settings.model_routing.profiles
+    ]
+    default_model_router = ConfiguredModelRouter(model_profiles)
 
-    # Plugin loading gets its own simple EventLogger — plugin_load events
-    # are pure logging, not decisions that should trigger the reflection/
-    # curiosity/strategy-metrics pipeline, so they don't need on_event.
+    # Dispatch-free EventLogger — used for events that are pure logging,
+    # not decisions that should trigger the reflection/curiosity/strategy-
+    # metrics pipeline: plugin load results and llm_call cost events.
+    plain_event_logger = EventLogger(session_factory, bus)
+
     plugin_registry = PluginRegistry(registry)
-    plugin_load_results = load_plugins(settings, plugin_registry, EventLogger(session_factory, bus))
+    plugin_load_results = load_plugins(settings, plugin_registry, plain_event_logger)
 
     reflection_generator = (
         plugin_registry.get_reflection_generator(settings.plugins.active_reflection_generator)
@@ -106,6 +111,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         plugin_registry.get_model_router(settings.plugins.active_model_router)
         if settings.plugins.active_model_router
         else default_model_router
+    )
+
+    # LLM components: every one of them is conditionally None when no key
+    # is configured — create_app() must not raise or behave differently
+    # for anyone who hasn't set ANTHROPIC_API_KEY. Only fills in an
+    # LLM-backed reflection_generator if no plugin already claimed that
+    # swap-point.
+    llm_client: LLMClient | None = None
+    if settings.anthropic_api_key:
+        llm_client = AnthropicLLMClient(
+            settings.anthropic_api_key.get_secret_value(), timeout_seconds=settings.llm.timeout_seconds
+        )
+
+    if reflection_generator is None and llm_client is not None:
+        reflection_generator = LLMReflectionGenerator(
+            llm_client,
+            model=settings.llm.default_reflection_model,
+            profiles=model_profiles,
+            max_tokens=settings.llm.reflection_max_tokens,
+            event_logger=plain_event_logger,
+        )
+
+    llm_task_planner = (
+        LLMTaskPlanner(
+            llm_client, registry, model=settings.llm.default_planner_model, max_tokens=settings.llm.planner_max_tokens
+        )
+        if llm_client is not None
+        else None
+    )
+
+    curiosity_text_generator = (
+        LLMCuriosityTextGenerator(
+            llm_client, model=settings.llm.default_curiosity_model, max_tokens=settings.llm.curiosity_max_tokens
+        )
+        if llm_client is not None
+        else None
     )
 
     reflection_engine = ReflectionEngine(session_factory, generator=reflection_generator)
@@ -123,6 +164,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         vector_dim=settings.memory.vector_dim,
         similarity_threshold=settings.curiosity.similarity_threshold,
         research_objective_top_k=settings.curiosity.research_objective_top_k,
+        text_generator=curiosity_text_generator,
+        event_logger=plain_event_logger,
+        profiles=model_profiles,
     )
 
     # Order matters: completion_handler must run first — curiosity_handler
@@ -171,8 +215,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.memory_store = memory_store
     app.state.vault_writer = vault_writer
     app.state.model_router = model_router
+    app.state.model_profiles = model_profiles
     app.state.plugin_load_results = plugin_load_results
     app.state.current_agent_id = current_agent_id
+    app.state.llm_client = llm_client
+    app.state.llm_task_planner = llm_task_planner
     app.state.executor = ThreadPoolExecutor(max_workers=4)
 
     app.include_router(routes_tasks.router)

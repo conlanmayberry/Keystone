@@ -18,6 +18,9 @@
       <form id="new-task-form">
         <label>Title <input type="text" id="task-title" required /></label>
         <label>Prompt <textarea id="task-prompt" rows="2" required></textarea></label>
+        <label class="inline-checkbox">
+          <input type="checkbox" id="task-auto-plan" /> Auto-plan (LLM) — let the configured LLM produce the tool-call plan from the prompt above
+        </label>
         <label>
           Tool calls (JSON array of {"tool_name","args"})
           <textarea id="task-tool-calls" rows="4">[

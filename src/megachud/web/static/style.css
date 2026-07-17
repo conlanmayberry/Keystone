@@ -61,6 +61,13 @@ form label {
   color: var(--muted);
 }
 
+form label.inline-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+form label.inline-checkbox input[type="checkbox"] { width: auto; margin-top: 0; }
+
 input, textarea, button {
   width: 100%;
   background: #0f1115;

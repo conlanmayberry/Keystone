@@ -602,19 +602,25 @@ el("routing-simulate-form").addEventListener("submit", async (e) => {
   }
 });
 
+el("task-auto-plan").addEventListener("change", (e) => {
+  el("task-tool-calls").disabled = e.target.checked;
+});
+
 el("new-task-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const status = el("new-task-status");
+  const autoPlan = el("task-auto-plan").checked;
   try {
-    const toolCalls = JSON.parse(el("task-tool-calls").value || "[]");
+    const body = {
+      title: el("task-title").value,
+      prompt: el("task-prompt").value,
+      auto_plan: autoPlan,
+      tool_calls: autoPlan ? [] : JSON.parse(el("task-tool-calls").value || "[]"),
+    };
     const result = await fetchJson("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: el("task-title").value,
-        prompt: el("task-prompt").value,
-        tool_calls: toolCalls,
-      }),
+      body: JSON.stringify(body),
     });
     status.textContent = `Task ${result.id} started (${result.status})`;
     status.style.color = "var(--success)";
