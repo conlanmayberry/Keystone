@@ -51,7 +51,7 @@ from megachud.reflection.llm_generator import LLMReflectionGenerator
 from megachud.routing.engine import ConfiguredModelRouter, ModelProfile
 from megachud.strategy.metrics import StrategyMetricsHandler
 from megachud.tools.file_tools import ReadFileTool, WriteFileTool
-from megachud.tools.internet_tools import HttpFetchTool
+from megachud.tools.internet_tools import DownloadFileTool, HttpFetchTool
 from megachud.tools.registry import ToolRegistry
 from megachud.tools.shell_tool import ShellExecTool
 
@@ -87,6 +87,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             max_response_bytes=settings.internet.fetch.max_response_bytes,
             timeout_seconds=settings.internet.fetch.timeout_seconds,
             max_redirects=settings.internet.fetch.max_redirects,
+            domain_allowlist=settings.internet.domain_allowlist,
+            domain_denylist=settings.internet.domain_denylist,
+        )
+    )
+    registry.register(
+        DownloadFileTool(
+            settings.workspace_root,
+            max_file_bytes=settings.internet.download.max_file_bytes,
+            max_folder_bytes=settings.internet.download.max_folder_bytes,
+            blocked_extensions=settings.internet.download.blocked_extensions,
+            timeout_seconds=settings.internet.download.timeout_seconds,
+            max_redirects=settings.internet.download.max_redirects,
             domain_allowlist=settings.internet.domain_allowlist,
             domain_denylist=settings.internet.domain_denylist,
         )

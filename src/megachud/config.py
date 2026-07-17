@@ -88,11 +88,22 @@ class FetchConfig(BaseModel):
     max_redirects: int = 5
 
 
+class DownloadConfig(BaseModel):
+    max_file_bytes: int = 25_000_000
+    max_folder_bytes: int = 500_000_000
+    blocked_extensions: list[str] = [
+        ".exe", ".msi", ".bat", ".cmd", ".sh", ".ps1", ".dll", ".scr", ".com", ".jar",
+    ]
+    timeout_seconds: float = 30.0
+    max_redirects: int = 5
+
+
 class InternetConfig(BaseModel):
     # Empty = unrestricted — fetching any public URL is allowed by default.
     domain_allowlist: list[str] = []
     domain_denylist: list[str] = []
     fetch: FetchConfig = FetchConfig()
+    download: DownloadConfig = DownloadConfig()
 
 
 class LLMConfig(BaseModel):

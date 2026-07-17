@@ -17,3 +17,9 @@ def test_http_fetch_tool_always_registered(test_settings):
     app = create_app(test_settings)
     tool = app.state.tool_registry.get("http_fetch")
     assert tool.name == "http_fetch"
+
+
+def test_download_file_tool_always_registered(test_settings):
+    app = create_app(test_settings)
+    tool = app.state.tool_registry.get("download_file")
+    assert tool.name == "download_file"

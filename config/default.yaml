@@ -105,3 +105,10 @@ internet:
     max_response_bytes: 2000000
     timeout_seconds: 15.0
     max_redirects: 5
+  download:
+    # Files land under workspace/downloads/ — browse them directly there.
+    max_file_bytes: 25000000
+    max_folder_bytes: 500000000
+    blocked_extensions: [".exe", ".msi", ".bat", ".cmd", ".sh", ".ps1", ".dll", ".scr", ".com", ".jar"]
+    timeout_seconds: 30.0
+    max_redirects: 5
