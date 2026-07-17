@@ -2,7 +2,23 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from typing import Any
+from typing import Any, Protocol
+
+
+class EventBusProtocol(Protocol):
+    """Phase 5 swap-point formalization of the interface EventBus already
+    committed to since Phase 1 (see its docstring). A Protocol, not an ABC,
+    since EventBus is a concrete class today, not a subclass hierarchy
+    waiting to be created — this lets a future cross-process/cross-agent
+    broker satisfy the same interface without EventBus needing to change or
+    without forcing inheritance onto the one working implementation.
+    """
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None: ...
+    def publish(self, event: dict[str, Any]) -> None: ...
+    def subscribe(self) -> asyncio.Queue[dict[str, Any]]: ...
+    def unsubscribe(self, queue: asyncio.Queue[dict[str, Any]]) -> None: ...
+    def backlog(self) -> list[dict[str, Any]]: ...
 
 
 class EventBus:

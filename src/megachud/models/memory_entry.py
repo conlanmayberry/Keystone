@@ -41,3 +41,8 @@ class MemoryEntry(UUIDPKMixin, CreatedAtMixin, Base):
     # Relative path under vault/, set once the vault writer has written this
     # entry's note.
     vault_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Phase 5 structural multi-agent/multi-project seam — see task.py's
+    # matching columns for the full rationale.
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agents.id"), nullable=True)
+    project_name: Mapped[str | None] = mapped_column(String(200), nullable=True)

@@ -1,6 +1,11 @@
 workspace_root: "./workspace"
 db_path: "./data/megachud.db"
 vault_root: "./vault"
+# Phase 5 structural multi-agent/multi-project seam — see models/agent.py
+# and db.py::get_or_create_agent. Still exactly one orchestrator process;
+# these just tag rows for a future multi-agent phase to build on.
+agent_name: "default"
+project_name: "default"
 
 api:
   host: "127.0.0.1"

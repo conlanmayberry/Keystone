@@ -78,6 +78,8 @@ class Settings(BaseModel):
     workspace_root: Path
     db_path: Path
     vault_root: Path
+    agent_name: str = "default"
+    project_name: str = "default"
     api: ApiConfig = ApiConfig()
     approval: ApprovalConfig = ApprovalConfig()
     shell: ShellConfig = ShellConfig()
@@ -130,6 +132,8 @@ def _apply_env_overrides(data: dict[str, Any], prefix: str) -> dict[str, Any]:
         "db_path": os.environ.get(f"{prefix}DB_PATH"),
         "workspace_root": os.environ.get(f"{prefix}WORKSPACE_ROOT"),
         "vault_root": os.environ.get(f"{prefix}VAULT_ROOT"),
+        "agent_name": os.environ.get(f"{prefix}AGENT_NAME"),
+        "project_name": os.environ.get(f"{prefix}PROJECT_NAME"),
     }
     result = dict(data)
     for key, value in overrides.items():

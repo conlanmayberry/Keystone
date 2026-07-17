@@ -56,6 +56,11 @@ class Strategy(UUIDPKMixin, CreatedAtMixin, Base):
     mean_duration_ms: Mapped[float] = mapped_column(Float, default=0.0)
     mean_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Phase 5 structural multi-agent/multi-project seam — see task.py's
+    # matching columns for the full rationale.
+    agent_id: Mapped[str | None] = mapped_column(ForeignKey("agents.id"), nullable=True)
+    project_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
     @property
     def success_rate(self) -> float:
         return self.success_count / self.sample_count if self.sample_count else 0.0

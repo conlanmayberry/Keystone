@@ -5,7 +5,7 @@ from typing import Any, Callable
 
 from sqlalchemy.orm import Session, sessionmaker
 
-from megachud.events.bus import EventBus
+from megachud.events.bus import EventBusProtocol
 from megachud.models.event import Event
 
 
@@ -27,7 +27,7 @@ class EventLogger:
     def __init__(
         self,
         session_factory: sessionmaker[Session],
-        bus: EventBus,
+        bus: EventBusProtocol,
         on_event: Callable[[Event], None] | None = None,
     ) -> None:
         self._session_factory = session_factory
