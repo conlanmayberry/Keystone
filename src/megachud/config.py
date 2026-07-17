@@ -74,6 +74,13 @@ class ReviewConfig(BaseModel):
     weekly_window_days: int = 7
 
 
+class PluginsConfig(BaseModel):
+    enabled_local: list[str] = []
+    enabled_packages: list[str] = []
+    active_reflection_generator: str | None = None
+    active_model_router: str | None = None
+
+
 class Settings(BaseModel):
     workspace_root: Path
     db_path: Path
@@ -91,6 +98,7 @@ class Settings(BaseModel):
     bottleneck: BottleneckConfig = BottleneckConfig()
     model_routing: ModelRoutingConfig = ModelRoutingConfig()
     review: ReviewConfig = ReviewConfig()
+    plugins: PluginsConfig = PluginsConfig()
 
     @classmethod
     def load(

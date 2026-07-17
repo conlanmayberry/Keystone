@@ -27,7 +27,7 @@ from megachud.api import (
 )
 from megachud.config import Settings
 from megachud.curiosity.engine import CuriosityHandler
-from megachud.db import get_engine, init_db, make_session_factory
+from megachud.db import ensure_agent_project_columns, get_engine, get_or_create_agent, init_db, make_session_factory
 from megachud.evaluation.checks import check_python_syntax, check_tests_pass, check_tool_calls_succeeded
 from megachud.evaluation.engine import EvaluationEngine
 from megachud.events.bus import EventBus
@@ -37,6 +37,8 @@ from megachud.memory.store import MemoryStore
 from megachud.obsidian.vault import VaultWriter
 from megachud.orchestrator.approval_gate import ApprovalGate
 from megachud.orchestrator.engine import Orchestrator
+from megachud.plugins.loader import load_plugins
+from megachud.plugins.registry import PluginRegistry
 from megachud.reflection.engine import ReflectionEngine
 from megachud.reflection.handler import TaskCompletionHandler
 from megachud.routing.engine import ConfiguredModelRouter, ModelProfile
@@ -53,11 +55,57 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     engine = get_engine(settings.db_path)
     init_db(engine)
+    ensure_agent_project_columns(engine)
     session_factory = make_session_factory(engine)
 
     bus = EventBus()
+    current_agent_id = get_or_create_agent(session_factory, settings.agent_name)
 
-    reflection_engine = ReflectionEngine(session_factory)
+    # Build the default (non-plugin) tool set first, so plugin loading can
+    # only add to an already-valid baseline.
+    registry = ToolRegistry()
+    registry.register(ReadFileTool(settings.workspace_root))
+    registry.register(WriteFileTool(settings.workspace_root))
+    registry.register(
+        ShellExecTool(
+            settings.workspace_root,
+            allowlist=settings.shell.allowlist,
+            denylist=settings.shell.denylist,
+            timeout_seconds=settings.shell.timeout_seconds,
+        )
+    )
+
+    default_model_router = ConfiguredModelRouter(
+        [
+            ModelProfile(
+                name=p.name,
+                cost_per_1k_input_tokens=p.cost_per_1k_input_tokens,
+                cost_per_1k_output_tokens=p.cost_per_1k_output_tokens,
+                quality_tier=p.quality_tier,
+                est_latency_ms=p.est_latency_ms,
+            )
+            for p in settings.model_routing.profiles
+        ]
+    )
+
+    # Plugin loading gets its own simple EventLogger — plugin_load events
+    # are pure logging, not decisions that should trigger the reflection/
+    # curiosity/strategy-metrics pipeline, so they don't need on_event.
+    plugin_registry = PluginRegistry(registry)
+    plugin_load_results = load_plugins(settings, plugin_registry, EventLogger(session_factory, bus))
+
+    reflection_generator = (
+        plugin_registry.get_reflection_generator(settings.plugins.active_reflection_generator)
+        if settings.plugins.active_reflection_generator
+        else None
+    )
+    model_router = (
+        plugin_registry.get_model_router(settings.plugins.active_model_router)
+        if settings.plugins.active_model_router
+        else default_model_router
+    )
+
+    reflection_engine = ReflectionEngine(session_factory, generator=reflection_generator)
     memory_store = MemoryStore(session_factory, vector_dim=settings.memory.vector_dim)
     vault_writer = VaultWriter(settings.vault_root)
     completion_handler = TaskCompletionHandler(reflection_engine, memory_store, vault_writer)
@@ -73,18 +121,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # reads the Reflection row it creates.
     dispatcher = EventDispatcher([completion_handler, strategy_metrics_handler, curiosity_handler])
     event_logger = EventLogger(session_factory, bus, on_event=dispatcher)
-
-    registry = ToolRegistry()
-    registry.register(ReadFileTool(settings.workspace_root))
-    registry.register(WriteFileTool(settings.workspace_root))
-    registry.register(
-        ShellExecTool(
-            settings.workspace_root,
-            allowlist=settings.shell.allowlist,
-            denylist=settings.shell.denylist,
-            timeout_seconds=settings.shell.timeout_seconds,
-        )
-    )
 
     approval_gate = ApprovalGate(
         session_factory,
@@ -110,19 +146,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         workspace_root=settings.workspace_root,
     )
 
-    model_router = ConfiguredModelRouter(
-        [
-            ModelProfile(
-                name=p.name,
-                cost_per_1k_input_tokens=p.cost_per_1k_input_tokens,
-                cost_per_1k_output_tokens=p.cost_per_1k_output_tokens,
-                quality_tier=p.quality_tier,
-                est_latency_ms=p.est_latency_ms,
-            )
-            for p in settings.model_routing.profiles
-        ]
-    )
-
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bus.bind_loop(asyncio.get_running_loop())
@@ -140,6 +163,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.memory_store = memory_store
     app.state.vault_writer = vault_writer
     app.state.model_router = model_router
+    app.state.plugin_load_results = plugin_load_results
+    app.state.current_agent_id = current_agent_id
     app.state.executor = ThreadPoolExecutor(max_workers=4)
 
     app.include_router(routes_tasks.router)

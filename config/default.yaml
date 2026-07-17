@@ -69,3 +69,11 @@ model_routing:
 review:
   hourly_window_hours: 1
   weekly_window_days: 7
+
+# Nothing loads unless explicitly named here — a fresh clone loads zero
+# plugins. See plugins/README.md for the full mechanism.
+plugins:
+  enabled_local: []
+  enabled_packages: []
+  active_reflection_generator: null
+  active_model_router: null

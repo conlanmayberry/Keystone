@@ -11,6 +11,10 @@ workspace/*
 !workspace/.gitkeep
 vault/*
 !vault/.gitkeep
+plugins/*
+!plugins/.gitkeep
+!plugins/README.md
+!plugins/example_uppercase.py
 
 config/local.yaml
 .env
