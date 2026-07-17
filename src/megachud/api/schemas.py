@@ -14,6 +14,9 @@ class TaskCreateRequest(BaseModel):
     title: str
     prompt: str
     tool_calls: list[ToolCallIn] = []
+    # If true, tool_calls must be empty — the server asks the LLM planner
+    # to produce plan_json from `prompt` instead of the caller supplying it.
+    auto_plan: bool = False
 
 
 class TaskCreateResponse(BaseModel):

@@ -5,9 +5,12 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 
 from megachud.api.schemas import TaskCreateRequest, TaskCreateResponse, TaskDetail, TaskSummary, WorkingSummary
+from megachud.llm.client import LLMRequestError
 from megachud.models.evaluation import Evaluation
 from megachud.models.event import Event
 from megachud.models.task import Task
+from megachud.orchestrator.llm_planner import PlanValidationError
+from megachud.routing.engine import compute_cost_usd
 
 router = APIRouter()
 
@@ -15,7 +18,28 @@ router = APIRouter()
 @router.post("/tasks", response_model=TaskCreateResponse)
 def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateResponse:
     session_factory = request.app.state.session_factory
-    plan = [{"tool_name": c.tool_name, "args": c.args} for c in payload.tool_calls]
+
+    plan_tokens: tuple[str, int, int] | None = None  # (model, tokens_input, tokens_output), if auto-planned
+
+    if payload.auto_plan:
+        if payload.tool_calls:
+            raise HTTPException(status_code=422, detail="cannot supply both tool_calls and auto_plan")
+
+        planner = request.app.state.llm_task_planner
+        if planner is None:
+            raise HTTPException(status_code=503, detail="LLM planning is not configured (no ANTHROPIC_API_KEY)")
+
+        try:
+            plan_result = planner.plan(payload.prompt)
+        except PlanValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except LLMRequestError as exc:
+            raise HTTPException(status_code=502, detail=f"LLM planning request failed: {exc}") from exc
+
+        plan = [{"tool_name": c.tool_name, "args": c.args} for c in plan_result.plan]
+        plan_tokens = (plan_result.model, plan_result.tokens_input, plan_result.tokens_output)
+    else:
+        plan = [{"tool_name": c.tool_name, "args": c.args} for c in payload.tool_calls]
 
     session = session_factory()
     try:
@@ -32,6 +56,23 @@ def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateRespo
         status = task.status.value
     finally:
         session.close()
+
+    if plan_tokens is not None:
+        # Logged here, not inside LLMTaskPlanner.plan(), since no Task row
+        # (and therefore no task_id) exists until this point.
+        model, tokens_input, tokens_output = plan_tokens
+        profiles = request.app.state.model_profiles
+        profile = next((p for p in profiles if p.name == model), None)
+        cost_usd = compute_cost_usd(profile, tokens_input, tokens_output) if profile is not None else None
+        request.app.state.event_logger.log(
+            event_type="llm_call",
+            task_id=task_id,
+            tool_name="llm:planner",
+            cost_usd=cost_usd,
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
+            payload={"model": model, "consumer": "planner"},
+        )
 
     orchestrator = request.app.state.orchestrator
     request.app.state.executor.submit(orchestrator.run_task, task_id)
