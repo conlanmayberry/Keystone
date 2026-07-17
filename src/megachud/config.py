@@ -56,6 +56,19 @@ class BottleneckConfig(BaseModel):
     tool_failure_rate_threshold: float = 0.2
 
 
+class ModelProfileConfig(BaseModel):
+    name: str
+    cost_per_1k_input_tokens: float
+    cost_per_1k_output_tokens: float
+    quality_tier: int
+    est_latency_ms: int
+
+
+class ModelRoutingConfig(BaseModel):
+    profiles: list[ModelProfileConfig] = []
+    default_quality_target: int = 2
+
+
 class Settings(BaseModel):
     workspace_root: Path
     db_path: Path
@@ -69,6 +82,7 @@ class Settings(BaseModel):
     curiosity: CuriosityConfig = CuriosityConfig()
     experiment: ExperimentConfig = ExperimentConfig()
     bottleneck: BottleneckConfig = BottleneckConfig()
+    model_routing: ModelRoutingConfig = ModelRoutingConfig()
 
     @classmethod
     def load(
