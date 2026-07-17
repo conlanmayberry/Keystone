@@ -5,11 +5,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "default.yaml"
 LOCAL_CONFIG_PATH = REPO_ROOT / "config" / "local.yaml"
+DOTENV_PATH = REPO_ROOT / ".env"
 
 
 class ApiConfig(BaseModel):
@@ -81,12 +82,27 @@ class PluginsConfig(BaseModel):
     active_model_router: str | None = None
 
 
+class LLMConfig(BaseModel):
+    default_reflection_model: str = "claude-haiku-4-5-20251001"
+    default_planner_model: str = "claude-sonnet-5"
+    default_curiosity_model: str = "claude-haiku-4-5-20251001"
+    reflection_max_tokens: int = 4096
+    planner_max_tokens: int = 4096
+    # A question + 2 short descriptions needs far less than a full plan.
+    curiosity_max_tokens: int = 1024
+    timeout_seconds: float = 60.0
+
+
 class Settings(BaseModel):
     workspace_root: Path
     db_path: Path
     vault_root: Path
     agent_name: str = "default"
     project_name: str = "default"
+    # Never present in default.yaml/local.yaml — populated only from the
+    # real environment or .env (see Settings.load / _load_dotenv below).
+    # SecretStr so it never appears in a repr()/str() of this object.
+    anthropic_api_key: SecretStr | None = None
     api: ApiConfig = ApiConfig()
     approval: ApprovalConfig = ApprovalConfig()
     shell: ShellConfig = ShellConfig()
@@ -99,6 +115,7 @@ class Settings(BaseModel):
     model_routing: ModelRoutingConfig = ModelRoutingConfig()
     review: ReviewConfig = ReviewConfig()
     plugins: PluginsConfig = PluginsConfig()
+    llm: LLMConfig = LLMConfig()
 
     @classmethod
     def load(
@@ -106,6 +123,7 @@ class Settings(BaseModel):
         default_path: Path = DEFAULT_CONFIG_PATH,
         local_path: Path = LOCAL_CONFIG_PATH,
         env_prefix: str = "MEGACHUD_",
+        dotenv_path: Path = DOTENV_PATH,
     ) -> "Settings":
         data = _load_yaml(default_path)
         if local_path.exists():
@@ -116,12 +134,31 @@ class Settings(BaseModel):
         data["db_path"] = _resolve_path(data["db_path"])
         data["vault_root"] = _resolve_path(data["vault_root"])
 
+        # A real env var always wins over .env; _load_dotenv never mutates
+        # os.environ (unlike python-dotenv's load_dotenv()), so this has
+        # zero global side effects and no cross-test leakage risk.
+        dotenv_values = _load_dotenv(dotenv_path)
+        data["anthropic_api_key"] = os.environ.get("ANTHROPIC_API_KEY") or dotenv_values.get("ANTHROPIC_API_KEY")
+
         return cls(**data)
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def _load_dotenv(dotenv_path: Path) -> dict[str, str]:
+    """Returns parsed key/value pairs from dotenv_path via python-dotenv's
+    dotenv_values() — never load_dotenv(), which mutates os.environ
+    globally. Returns {} if the file doesn't exist. Pure function, no side
+    effects: safe to call repeatedly in tests with zero cross-test leakage.
+    """
+    if not dotenv_path.is_file():
+        return {}
+    from dotenv import dotenv_values
+
+    return {k: v for k, v in dotenv_values(dotenv_path).items() if v is not None}
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

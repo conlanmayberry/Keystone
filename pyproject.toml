@@ -17,6 +17,8 @@ dependencies = [
     "websockets>=13.0",
     "scikit-learn>=1.5",
     "numpy>=1.26",
+    "anthropic>=0.69",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]

@@ -44,27 +44,29 @@ bottleneck:
   min_samples: 5
   tool_failure_rate_threshold: 0.2
 
-# Illustrative placeholder numbers, NOT real provider pricing — no LLM call
-# exists anywhere in this codebase yet (see routing/engine.py). These exist
-# so ConfiguredModelRouter has something concrete to route between.
+# `name` is the literal, directly-callable Claude model ID — RoutingDecision.chosen_model
+# feeds straight into llm/client.py's `model` argument with no mapping table.
+# Pricing below is approximate, sourced when this was written — verify/adjust
+# against current published Anthropic pricing before relying on it for real
+# cost accounting. Sonnet 5 may have introductory pricing that undercuts this.
 model_routing:
   default_quality_target: 2
   profiles:
-    - name: "fast-cheap"
-      cost_per_1k_input_tokens: 0.0002
-      cost_per_1k_output_tokens: 0.0006
-      quality_tier: 1
-      est_latency_ms: 400
-    - name: "balanced"
+    - name: "claude-haiku-4-5-20251001"
       cost_per_1k_input_tokens: 0.001
-      cost_per_1k_output_tokens: 0.003
-      quality_tier: 2
-      est_latency_ms: 900
-    - name: "premium"
-      cost_per_1k_input_tokens: 0.005
+      cost_per_1k_output_tokens: 0.005
+      quality_tier: 1
+      est_latency_ms: 500
+    - name: "claude-sonnet-5"
+      cost_per_1k_input_tokens: 0.003
       cost_per_1k_output_tokens: 0.015
+      quality_tier: 2
+      est_latency_ms: 1200
+    - name: "claude-opus-4-8"
+      cost_per_1k_input_tokens: 0.005
+      cost_per_1k_output_tokens: 0.025
       quality_tier: 3
-      est_latency_ms: 1800
+      est_latency_ms: 2500
 
 review:
   hourly_window_hours: 1
@@ -77,3 +79,17 @@ plugins:
   enabled_packages: []
   active_reflection_generator: null
   active_model_router: null
+
+# Which model each LLM-backed swap-point uses by default — policy knobs
+# only. The actual API key is never here; it comes from ANTHROPIC_API_KEY
+# in the real environment or .env (see config.py::Settings.load). With no
+# key configured, every LLM-backed component falls back to its existing
+# deterministic implementation — zero behavior change.
+llm:
+  default_reflection_model: "claude-haiku-4-5-20251001"
+  default_planner_model: "claude-sonnet-5"
+  default_curiosity_model: "claude-haiku-4-5-20251001"
+  reflection_max_tokens: 4096
+  planner_max_tokens: 4096
+  curiosity_max_tokens: 1024
+  timeout_seconds: 60.0
