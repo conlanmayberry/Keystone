@@ -45,13 +45,14 @@ def find_bottlenecks(
 
 
 def _tool_failure_rate_findings(session: Session, since: datetime, min_samples: int, threshold: float) -> list[BottleneckFinding]:
-    results = session.query(Event).filter(Event.event_type == "tool_result", Event.created_at >= since).all()
+    results = (
+        session.query(Event.tool_name, Event.payload_json)
+        .filter(Event.event_type == "tool_result", Event.tool_name.is_not(None), Event.created_at >= since)
+        .all()
+    )
     by_tool: dict[str, list[bool]] = {}
-    for event in results:
-        if event.tool_name is None:
-            continue
-        payload = json.loads(event.payload_json)
-        by_tool.setdefault(event.tool_name, []).append(bool(payload.get("success")))
+    for tool_name, payload_json in results:
+        by_tool.setdefault(tool_name, []).append(bool(json.loads(payload_json).get("success")))
 
     findings: list[BottleneckFinding] = []
     for tool_name, outcomes in by_tool.items():

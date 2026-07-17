@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session, sessionmaker
 
 from megachud.models.event import Event
@@ -54,25 +55,31 @@ def build_analytics_report(
     """
     session = session_factory()
     try:
-        task_query = session.query(Task).filter(Task.created_at >= window_start, Task.created_at < window_end)
+        in_window = (Event.created_at >= window_start, Event.created_at < window_end)
+
+        task_query = (
+            session.query(Task.status, func.count())
+            .filter(Task.created_at >= window_start, Task.created_at < window_end)
+        )
         if agent_id:
             task_query = task_query.filter(Task.agent_id == agent_id)
-        tasks = task_query.all()
-        task_counts_by_status = dict(Counter(t.status.value for t in tasks))
+        task_counts_by_status = {status.value: count for status, count in task_query.group_by(Task.status)}
 
-        all_events = (
-            session.query(Event)
-            .filter(Event.created_at >= window_start, Event.created_at < window_end)
+        event_counts_by_type = dict(
+            session.query(Event.event_type, func.count()).filter(*in_window).group_by(Event.event_type)
+        )
+
+        # payload_json's success flag needs Python-side parsing, so this one
+        # can't be a pure SQL aggregate — but only tool_result rows and only
+        # the two needed columns are loaded, not every event in the window.
+        tool_outcomes: dict[str, list[bool]] = defaultdict(list)
+        tool_result_rows = (
+            session.query(Event.tool_name, Event.payload_json)
+            .filter(Event.event_type == "tool_result", Event.tool_name.is_not(None), *in_window)
             .all()
         )
-        event_counts_by_type = dict(Counter(e.event_type for e in all_events))
-
-        tool_outcomes: dict[str, list[bool]] = defaultdict(list)
-        for event in all_events:
-            if event.event_type != "tool_result" or event.tool_name is None:
-                continue
-            payload = json.loads(event.payload_json)
-            tool_outcomes[event.tool_name].append(bool(payload.get("success")))
+        for tool_name, payload_json in tool_result_rows:
+            tool_outcomes[tool_name].append(bool(json.loads(payload_json).get("success")))
         tool_call_counts = {tool: len(outcomes) for tool, outcomes in tool_outcomes.items()}
         tool_failure_rates = {
             tool: 1 - (sum(outcomes) / len(outcomes)) for tool, outcomes in tool_outcomes.items()
@@ -84,31 +91,38 @@ def build_analytics_report(
         active_strategies = strategy_query.all()
         strategy_success_rates = {s.workflow_name: s.success_rate for s in active_strategies}
 
-        experiments = (
-            session.query(Experiment)
-            .filter(Experiment.created_at >= window_start, Experiment.created_at < window_end)
-            .all()
-        )
-        experiment_outcome_counts = dict(
-            Counter(e.recommendation.value if e.recommendation else "pending" for e in experiments)
-        )
+        experiment_outcome_counts = {
+            (recommendation.value if recommendation else "pending"): count
+            for recommendation, count in (
+                session.query(Experiment.recommendation, func.count())
+                .filter(Experiment.created_at >= window_start, Experiment.created_at < window_end)
+                .group_by(Experiment.recommendation)
+            )
+        }
 
-        reflections = (
-            session.query(Reflection)
+        reflection_total, reflection_long_term = (
+            session.query(
+                func.count(),
+                func.count().filter(Reflection.become_long_term_knowledge.is_(True)),
+            )
             .filter(Reflection.created_at >= window_start, Reflection.created_at < window_end)
-            .all()
+            .one()
         )
         become_long_term_knowledge_rate = (
-            sum(1 for r in reflections if r.become_long_term_knowledge) / len(reflections)
-            if reflections
-            else 0.0
+            reflection_long_term / reflection_total if reflection_total else 0.0
         )
 
-        cost_events = [e for e in all_events if e.cost_usd is not None]
-        total_cost_usd = sum(e.cost_usd for e in cost_events)
-        total_tokens_input = sum(e.tokens_input or 0 for e in all_events)
-        total_tokens_output = sum(e.tokens_output or 0 for e in all_events)
-        cost_data_available = len(cost_events) > 0
+        cost_event_count, total_cost_usd, total_tokens_input, total_tokens_output = (
+            session.query(
+                func.count(Event.cost_usd),
+                func.coalesce(func.sum(Event.cost_usd), 0.0),
+                func.coalesce(func.sum(Event.tokens_input), 0),
+                func.coalesce(func.sum(Event.tokens_output), 0),
+            )
+            .filter(*in_window)
+            .one()
+        )
+        cost_data_available = cost_event_count > 0
 
         return AnalyticsReport(
             window_start=window_start,
