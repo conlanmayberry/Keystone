@@ -11,7 +11,7 @@ class Evaluation(CreatedAtMixin, Base):
     __tablename__ = "evaluations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"))
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"), index=True)
     success: Mapped[bool] = mapped_column(Boolean)
     checks_json: Mapped[str] = mapped_column(Text, default="[]")
     score: Mapped[float | None] = mapped_column(Float, nullable=True)

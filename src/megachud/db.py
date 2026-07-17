@@ -29,6 +29,14 @@ def init_db(engine: Engine) -> None:
 
     Base.metadata.create_all(engine)
 
+    # create_all only creates tables that don't exist yet — indexes added
+    # to a model after its table was first created (e.g. a dev DB from an
+    # earlier phase) would otherwise never materialize. checkfirst makes
+    # this an idempotent no-op for indexes that already exist.
+    for table in Base.metadata.tables.values():
+        for index in table.indexes:
+            index.create(engine, checkfirst=True)
+
 
 def ensure_agent_project_columns(engine: Engine) -> None:
     """Base.metadata.create_all() only creates tables that don't exist yet

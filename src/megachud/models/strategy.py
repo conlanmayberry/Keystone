@@ -27,7 +27,7 @@ class Strategy(UUIDPKMixin, CreatedAtMixin, Base):
 
     workflow_name: Mapped[str] = mapped_column(String(200), index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text, default="")

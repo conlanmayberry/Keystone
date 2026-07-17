@@ -19,8 +19,11 @@ class Event(CreatedAtMixin, Base):
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
-    event_type: Mapped[str] = mapped_column(String(50))
+    # task_id/event_type indexed: SQLite doesn't index FKs, and events is
+    # the highest-volume table — strategy metrics, curiosity, analytics,
+    # and bottleneck detection all filter on these.
+    task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(50), index=True)
     tool_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)

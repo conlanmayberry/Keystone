@@ -20,4 +20,7 @@ class UUIDPKMixin:
 
 
 class CreatedAtMixin:
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Indexed: analytics, reviews, and bottleneck detection all window on
+    # created_at across several tables — without this every windowed query
+    # is a full table scan in SQLite.
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

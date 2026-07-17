@@ -19,10 +19,10 @@ class MemoryType(str, enum.Enum):
 class MemoryEntry(UUIDPKMixin, CreatedAtMixin, Base):
     __tablename__ = "memory_entries"
 
-    memory_type: Mapped[MemoryType] = mapped_column(Enum(MemoryType))
+    memory_type: Mapped[MemoryType] = mapped_column(Enum(MemoryType), index=True)
     title: Mapped[str] = mapped_column(String(200))
     content: Mapped[str] = mapped_column(Text)
-    source_task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True)
+    source_task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id"), nullable=True, index=True)
     reflection_id: Mapped[int | None] = mapped_column(ForeignKey("reflections.id"), nullable=True)
     tags_json: Mapped[str] = mapped_column(Text, default="[]")
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")

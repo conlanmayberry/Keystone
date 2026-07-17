@@ -18,7 +18,7 @@ class Reflection(CreatedAtMixin, Base):
     __tablename__ = "reflections"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"))
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"), index=True)
     evaluation_id: Mapped[int | None] = mapped_column(ForeignKey("evaluations.id"), nullable=True)
 
     what_worked: Mapped[str] = mapped_column(Text, default="[]")
