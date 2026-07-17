@@ -7,8 +7,10 @@ curiosity, bottleneck detection), **Phase 4** (optimization: model routing
 infrastructure, analytics, hourly/weekly reviews), and **Phase 5**
 (platform: dynamic plugin loading, structural multi-agent/multi-project
 readiness, advanced dashboards), plus a first real **LLM integration**
-(Anthropic Claude) layered on top once all 5 phases were done — see
-"LLM Integration" below. See the planning docs for the full picture:
+(Anthropic Claude) and **internet access** (HTTP fetch, file download,
+web search) layered on top once all 5 phases were done — see "LLM
+Integration" and "Internet Access" below. See the planning docs for the
+full picture:
 
 - [Master_Specification.md](Master_Specification.md) — vision, design
   principles, and the full set of components the platform grows into.
@@ -17,26 +19,31 @@ readiness, advanced dashboards), plus a first real **LLM integration**
 - [Engineering_Standards.md](Engineering_Standards.md) — language,
   architecture, logging, and quality standards followed throughout.
 
-Phase 1 deliberately ships **no internet access and no
+Phase 1 deliberately shipped **no internet access and no
 transaction/financial tools** — only local, sandboxed file and shell
 tools. Every tool declares a `risk_level` (`low` / `medium` /
 `high_irreversible`), and any `high_irreversible` tool call is routed
-through a human approval gate before it runs. This mechanism is fully
-built and tested now (see `tests/fixtures/dummy_tools.py`) so that later
-phases can add real internet-access and money-related tools — an explicit
-acceptance criterion for the finished product — without reworking the
-orchestrator. Curiosity still searches only existing local memory (no
-real web search), and the Model Selection Engine (`routing/`) is still a
-config-driven decision framework with no LLM call inside it anywhere —
-picking a model is still pure arithmetic, never itself an LLM call. What
-*has* changed since Phase 5: three other components (reflection
-generation, task planning, curiosity question/objective text) now have
-real Anthropic Claude-backed implementations, gated entirely behind
-whether `ANTHROPIC_API_KEY` is configured — see "LLM Integration" below.
-Phase 5's plugin system was the first exception to the local-only
-boundary: dynamic runtime loading of external Python code is real,
-deliberately scoped to local-only, explicit-opt-in sources (see
-"Plugins" below).
+through a human approval gate before it runs. This mechanism was fully
+built and tested from day one (see `tests/fixtures/dummy_tools.py`) so
+that later phases could add real internet-access and money-related tools
+— an explicit acceptance criterion for the finished product — without
+reworking the orchestrator. Real internet access has since landed (see
+"Internet Access" below): `http_fetch`, `download_file`, and `web_search`
+are `LOW`/`MEDIUM` risk and run automatically, same as `read_file`.
+Nothing that submits a form, completes a purchase, or otherwise changes
+remote state exists yet — that capability, if it's ever added, is exactly
+what the `HIGH_IRREVERSIBLE` → approval-gate mechanism is for, and it
+still requires no orchestrator changes to add. Curiosity still searches
+only existing local memory, not the new internet tools, and the Model
+Selection Engine (`routing/`) is still a config-driven decision framework
+with no LLM call inside it anywhere — picking a model is still pure
+arithmetic, never itself an LLM call. Three other components (reflection
+generation, task planning, curiosity question/objective text) have real
+Anthropic Claude-backed implementations, gated entirely behind whether
+`ANTHROPIC_API_KEY` is configured — see "LLM Integration" below. Phase 5's
+plugin system was the first exception to the local-only boundary: dynamic
+runtime loading of external Python code is real, deliberately scoped to
+local-only, explicit-opt-in sources (see "Plugins" below).
 
 ## Setup
 
@@ -145,6 +152,18 @@ predecessor) and once after (proves all 3 LLM swap-points — reflection,
 planning, curiosity — plus real cost/token tracking work end to end
 against the live Anthropic API). See "LLM Integration" below for setup.
 
+```
+.venv/Scripts/python scripts/run_internet_demo.py
+```
+
+Runs a real 2-step task (`http_fetch` then `download_file` against
+`https://example.com/`) through the real orchestrator, prints the
+resulting `tool_result` events, then runs a real `web_search` query if
+`BRAVE_API_KEY` is configured (otherwise prints the same "not configured"
+message style as the LLM demo), and prints the current
+`workspace/downloads/` disk usage against its quota. Needs real internet
+access to run. See "Internet Access" below for setup.
+
 ## Plugins
 
 See [plugins/README.md](plugins/README.md) for the full mechanism and
@@ -229,6 +248,72 @@ this codebase's existing validate-everything convention. See
 unconfigured (fallback) and configured (real API) paths. Every test in
 the suite uses `tests/fixtures/fake_llm_client.py`'s `FakeLLMClient` — no
 real network call happens anywhere in `pytest`.
+
+## Internet Access
+
+The first real internet access in this codebase — three new built-in
+`Tool`s (`tools/internet_tools.py`, `tools/web_search_tool.py`):
+`http_fetch` (GET a URL, return its text), `download_file` (save a URL's
+content under `workspace/downloads/`), and `web_search` (Brave Search
+API). `http_fetch` and `download_file` are `LOW`/`MEDIUM` risk and always
+registered — no setup needed. `web_search` needs a key (see Setup below)
+and is simply absent from the tool registry without one.
+
+**Setup**: only `web_search` needs anything. Add
+`BRAVE_API_KEY=your-key` to `.env` (get a key at
+[api.search.brave.com](https://api.search.brave.com) — generous free
+tier, no OAuth). Follows the exact `ANTHROPIC_API_KEY` pattern:
+`pydantic.SecretStr`, loaded only from a real environment variable or
+`.env`, never written to `default.yaml`/`local.yaml`.
+
+**The safety model, stated honestly:**
+- **SSRF / private-network guard** (`internet/url_safety.py`): every URL
+  — the original and every redirect hop — is DNS-resolved and rejected
+  if any resolved address is private, loopback, link-local, reserved, or
+  multicast (this also catches numeric-IP-literal obfuscation tricks like
+  `http://2130706433/`, since resolution normalizes them to a real
+  address first). httpx's own `follow_redirects=True` does **not**
+  re-validate hops — that's a known SSRF bypass — so both fetch and
+  download follow redirects manually, re-checking each one.
+- **This is not a phishing or malicious-content detector.** Nothing here
+  can tell a legitimate site from a scam lookalike domain — that's a
+  fundamentally different, much harder problem this project doesn't
+  attempt to solve, and the code says so directly rather than implying
+  otherwise.
+- **Known, deliberate limitation**: the safety check validates the
+  resolved address *before* connecting; a DNS-rebinding attacker could
+  change the answer between that check and the actual connection
+  (TOCTOU). Closing that fully needs a transport that pins the validated
+  IP for the real socket connect — a real, buildable follow-up, not done
+  here.
+- **Downloads** are capped per-file and by a total-folder quota (streamed
+  and enforced live, never trusting a server's `Content-Length` header),
+  land in `workspace/downloads/` (browse it directly — nothing new to
+  learn, it's the same sandboxed workspace every other tool already
+  writes to), reject known executable extensions before writing any bytes
+  (`.exe`, `.msi`, `.bat`, `.ps1`, etc. — configurable), sanitize
+  filenames against path traversal regardless of source (explicit arg,
+  `Content-Disposition` header, or the URL itself), and never silently
+  overwrite or evict existing files — a quota breach or name collision
+  fails cleanly instead.
+
+All of this is configurable under `internet:` in `config/default.yaml`
+(`domain_allowlist`/`domain_denylist` — both empty by default, meaning
+any public domain is reachable; per-tool byte/timeout/redirect caps).
+
+**Still true, unchanged from Phase 1**: nothing that submits a form,
+completes a purchase, or otherwise changes state on a real external site
+exists in this codebase. That capability doesn't exist at all yet — it's
+a deliberately separate, not-yet-built follow-up (real browser automation
+via Playwright, most likely) that would use the exact same
+`RiskLevel.HIGH_IRREVERSIBLE` → `ApprovalGate` mechanism every
+`high_irreversible` tool already goes through, per `Tool`'s own docstring
+("needs no orchestrator changes, only a new Tool subclass and a registry
+entry").
+
+See `scripts/run_internet_demo.py` for an end-to-end proof against the
+real internet. Every test in the suite uses `httpx.MockTransport` plus a
+stubbed DNS resolver — no real network call happens anywhere in `pytest`.
 
 ## Tests
 
@@ -377,6 +462,42 @@ real network call happens anywhere in `pytest`.
   A single dispatch-free `EventLogger` (no `on_event`) is shared by both
   plugin-load events and `llm_call` cost events, since neither should
   trigger the reflection/curiosity/strategy pipeline.
+
+### Internet Access
+- **`internet/url_safety.py::check_url_safety`**: the single SSRF/scheme
+  gate every URL-based tool calls, on the original URL and on every
+  redirect hop. DNS-resolves the hostname (the one seam tests
+  monkeypatch — no real DNS lookups anywhere in the suite) and rejects
+  the request if *any* resolved address is private/loopback/link-local/
+  reserved/multicast, not just the first — a hostname that round-robins
+  between a public and a private answer must still fail.
+- **`tools/internet_tools.py::open_validated_stream`**: a shared context
+  manager both `HttpFetchTool` and `DownloadFileTool` build on — a
+  manual, bounded redirect loop (`httpx.Client(follow_redirects=False)`)
+  that re-runs `check_url_safety` before connecting to each hop, since
+  httpx's own auto-follow-redirects does not re-validate hops (a known
+  SSRF bypass). Both tools read the response body via a capped streaming
+  loop rather than trusting `Content-Length`.
+- **`DownloadFileTool`**: `MEDIUM` risk (writes to disk, same tier as
+  `write_file`) vs. `HttpFetchTool`/`WebSearchTool`'s `LOW` (read-only) —
+  the same risk-tiering logic `ShellExecTool`/`WriteFileTool` already
+  established, not a new policy. Filename sanitization happens before
+  `resolve_safe_path` is ever called, since `workspace/sandbox.py` only
+  confines paths, it has no filename sanitizer of its own. The
+  folder-quota check runs *after* a file is written (summing actual
+  on-disk usage, including the just-written file, in one directory scan)
+  rather than trying to pre-compute available space — simpler, and still
+  never evicts an existing file to make room.
+- **`WebSearchTool`**: intentionally a bare class, not a provider-ABC —
+  this codebase only introduces an abstraction (like `LLMClient`) when
+  there are two real implementations from day one; here there's exactly
+  one (Brave), so a bare class is the honest amount of structure.
+- **`app.py` wiring**: `http_fetch`/`download_file` are unconditional,
+  same tier as `read_file`/`write_file`/`shell_exec`. `web_search` follows
+  the exact `settings.anthropic_api_key` conditional-registration pattern
+  — only registered when `settings.brave_api_key` is set, so a fresh
+  clone with no search key still boots identically (verified by test,
+  mirroring `test_create_app_does_not_raise_with_no_api_key`).
 
 ### Dashboard
 - **`api/`, `web/static/`**: FastAPI + plain HTML/JS, no build step.
