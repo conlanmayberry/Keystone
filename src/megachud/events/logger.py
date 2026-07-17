@@ -63,8 +63,11 @@ class EventLogger:
                 payload_json=json.dumps(payload or {}),
             )
             session.add(event)
+            # No refresh needed: id is populated at flush and every other
+            # default (created_at) is client-side, so with
+            # expire_on_commit=False a post-commit SELECT per event — on
+            # the hottest write path in the system — would be pure waste.
             session.commit()
-            session.refresh(event)
         finally:
             session.close()
 

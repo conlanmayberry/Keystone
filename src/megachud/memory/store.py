@@ -126,8 +126,9 @@ class MemoryStore:
                 project_name=self._project_name,
             )
             session.add(entry)
+            # No refresh: all defaults (uuid pk, created_at) are
+            # client-side and expire_on_commit=False keeps them loaded.
             session.commit()
-            session.refresh(entry)
             session.expunge(entry)
             return entry
         finally:
