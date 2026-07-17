@@ -60,3 +60,7 @@ model_routing:
       cost_per_1k_output_tokens: 0.015
       quality_tier: 3
       est_latency_ms: 1800
+
+review:
+  hourly_window_hours: 1
+  weekly_window_days: 7

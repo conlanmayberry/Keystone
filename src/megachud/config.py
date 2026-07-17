@@ -69,6 +69,11 @@ class ModelRoutingConfig(BaseModel):
     default_quality_target: int = 2
 
 
+class ReviewConfig(BaseModel):
+    hourly_window_hours: int = 1
+    weekly_window_days: int = 7
+
+
 class Settings(BaseModel):
     workspace_root: Path
     db_path: Path
@@ -83,6 +88,7 @@ class Settings(BaseModel):
     experiment: ExperimentConfig = ExperimentConfig()
     bottleneck: BottleneckConfig = BottleneckConfig()
     model_routing: ModelRoutingConfig = ModelRoutingConfig()
+    review: ReviewConfig = ReviewConfig()
 
     @classmethod
     def load(
