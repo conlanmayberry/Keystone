@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from megachud.routing.engine import ConfiguredModelRouter, ModelProfile, NoQualifyingModelError
+from megachud.routing.engine import ConfiguredModelRouter, ModelProfile, NoQualifyingModelError, compute_cost_usd
 
 FAST_CHEAP = ModelProfile("fast-cheap", cost_per_1k_input_tokens=0.0002, cost_per_1k_output_tokens=0.0006, quality_tier=1, est_latency_ms=400)
 BALANCED = ModelProfile("balanced", cost_per_1k_input_tokens=0.001, cost_per_1k_output_tokens=0.003, quality_tier=2, est_latency_ms=900)
@@ -50,3 +50,12 @@ def test_routing_is_deterministic():
     first = router.route("t", quality_target=2, est_tokens_input=500, est_tokens_output=200)
     second = router.route("t", quality_target=2, est_tokens_input=500, est_tokens_output=200)
     assert first == second
+
+
+def test_compute_cost_usd_matches_manual_arithmetic():
+    cost = compute_cost_usd(BALANCED, tokens_input=1000, tokens_output=500)
+    assert cost == pytest.approx(0.001 * 1 + 0.003 * 0.5)
+
+
+def test_compute_cost_usd_zero_tokens_is_zero_cost():
+    assert compute_cost_usd(PREMIUM, tokens_input=0, tokens_output=0) == 0.0

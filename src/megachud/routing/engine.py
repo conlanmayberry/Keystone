@@ -43,6 +43,17 @@ class NoQualifyingModelError(ValueError):
     pass
 
 
+def compute_cost_usd(profile: ModelProfile, tokens_input: int, tokens_output: int) -> float:
+    """Shared cost arithmetic — used here by ConfiguredModelRouter.route()
+    and reused (not duplicated) by every real LLM-call consumer
+    (LLMReflectionGenerator, the auto_plan route, CuriosityHandler) once
+    they know actual token usage from a real API response."""
+    return (
+        profile.cost_per_1k_input_tokens / 1000 * tokens_input
+        + profile.cost_per_1k_output_tokens / 1000 * tokens_output
+    )
+
+
 class ConfiguredModelRouter(ModelRouter):
     """Pure config lookup + arithmetic — no LLM call anywhere.
 
@@ -74,10 +85,7 @@ class ConfiguredModelRouter(ModelRouter):
             )
 
         def estimated_cost(profile: ModelProfile) -> float:
-            return (
-                profile.cost_per_1k_input_tokens / 1000 * est_tokens_input
-                + profile.cost_per_1k_output_tokens / 1000 * est_tokens_output
-            )
+            return compute_cost_usd(profile, est_tokens_input, est_tokens_output)
 
         ranked = sorted(qualifying, key=lambda p: (estimated_cost(p), p.est_latency_ms))
         winner = ranked[0]
