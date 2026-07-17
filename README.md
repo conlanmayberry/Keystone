@@ -1,18 +1,18 @@
 # MegaChud
 
-Self-improving autonomous AI operating system. This repo currently
-implements **Phase 1** (reliable core: orchestrator, sandboxed tools,
-persistence, logging, evaluation, dashboard), **Phase 2** (memory:
-deterministic reflection, episodic/semantic/user memory, local semantic
-retrieval, and an Obsidian vault), **Phase 3** (improvement: strategy/
-workflow engine, experiments, curiosity, bottleneck detection), and
-**Phase 4** (optimization: model routing infrastructure, analytics,
-hourly/weekly reviews). See the planning docs for the full picture:
+Self-improving autonomous AI operating system. This repo implements all
+**5 phases** of the roadmap: **Phase 1** (reliable core), **Phase 2**
+(memory), **Phase 3** (improvement: strategy/workflow engine, experiments,
+curiosity, bottleneck detection), **Phase 4** (optimization: model routing
+infrastructure, analytics, hourly/weekly reviews), and **Phase 5**
+(platform: dynamic plugin loading, structural multi-agent/multi-project
+readiness, advanced dashboards). See the planning docs for the full
+picture:
 
 - [Master_Specification.md](Master_Specification.md) — vision, design
   principles, and the full set of components the platform grows into.
 - [Implementation_Plan.md](Implementation_Plan.md) — the 5-phase roadmap.
-  This repo covers Phases 1–4.
+  This repo covers all 5 phases.
 - [Engineering_Standards.md](Engineering_Standards.md) — language,
   architecture, logging, and quality standards followed throughout.
 
@@ -29,7 +29,9 @@ Engine both deliberately stay on the local side of that same boundary:
 curiosity searches only existing memory (no real web search), and model
 routing is a config-driven decision framework with no LLM call anywhere
 in the codebase yet — both are explicit swap points for real
-implementations later.
+implementations later. Phase 5's plugin system is the one exception:
+dynamic runtime loading of external Python code is real, deliberately
+scoped to local-only, explicit-opt-in sources (see "Plugins" below).
 
 ## Setup
 
@@ -58,7 +60,8 @@ autonomous planner yet), watch the live activity feed over WebSocket,
 review task history, approve/deny any pending `high_irreversible` tool
 calls, browse/search/add memory, invoke strategies and manage
 experiments/promotions, answer curiosity questions, scan for bottlenecks,
-and review analytics/hourly/weekly reports plus a model-routing simulator.
+and review analytics/hourly/weekly reports plus a model-routing simulator,
+browse loaded plugins, and filter Task History/Analytics by agent.
 
 Every completed task automatically generates a deterministic `Reflection`
 and one or more `MemoryEntry` rows, mirrored as Markdown notes under
@@ -112,6 +115,29 @@ hourly and a weekly review — showing the honest `cost_data_available:
 False` state throughout, since no LLM call site exists in the codebase
 yet. Run `run_experiment_demo.py` first so there's real activity to
 report on.
+
+```
+.venv/Scripts/python scripts/run_platform_demo.py
+```
+
+Force-enables the shipped example plugin, loads it, and runs a real task
+through the orchestrator using the plugin-registered `uppercase_text`
+tool — proving a plugin's `Tool` executes with zero special-casing (the
+approval gate already applies uniformly regardless of a tool's origin).
+Also prints the seeded default `Agent` row (Phase 5's structural
+multi-agent readiness).
+
+## Plugins
+
+See [plugins/README.md](plugins/README.md) for the full mechanism and
+safety model. Short version: dynamic runtime loading of external Python
+code is real (unlike every other capability boundary in this project,
+which stayed local-only) but deliberately scoped — local-only discovery
+(a `plugins/` directory, or already pip-installed packages), explicit
+config allow-listing (nothing loads unless named), full `Event`-logged
+observability, and `Tool.risk_level` enforcement before a plugin tool
+ever reaches the real tool set. Python has no in-process sandbox — only
+enable plugins you trust.
 
 ## Tests
 
@@ -206,12 +232,46 @@ report on.
   and recommendations reused directly from `bottleneck.finder`) — no LLM
   narration.
 
+### Phase 5 — platform
+- **Plugins** (`plugins/`): `PluginRegistry` is the single choke point
+  where a plugin-provided `Tool`'s `risk_level` is actually enforced
+  before it reaches the real `ToolRegistry`. `Orchestrator.run_task` gates
+  purely on `tool.risk_level == HIGH_IRREVERSIBLE` with zero knowledge of
+  a tool's origin, so a plugin tool is indistinguishable at the approval
+  gate from a built-in one — zero orchestrator changes needed.
+  `plugins/loader.py::load_plugins` scans two local-only, explicit-opt-in
+  sources (a `plugins/` directory, or installed-package entry points under
+  group `megachud.plugins`); one plugin's failure never blocks another's
+  load or the app's startup, and every attempt is a structured `Event`.
+- **Multi-agent readiness** (`models/agent.py`): structural only — a
+  minimal `Agent` model (no auth, no process-affinity), with nullable
+  `agent_id`/`project_name` columns on `Task`/`Strategy`/`MemoryEntry`/
+  `Review`. Still exactly one orchestrator process; this just gives rows a
+  stable identity to be tagged with and filtered by, mirroring how
+  `Tool.risk_level` existed for two phases before any `HIGH_IRREVERSIBLE`
+  tool did. `db.py::ensure_agent_project_columns` is a small, idempotent
+  additive `ALTER TABLE` migration — `Base.metadata.create_all()` only
+  creates new tables, it never adds columns to tables that already exist,
+  and this project's dev DB already had populated tables from Phases 1-4.
+- **Event bus swap-point** (`events/bus.py`): `EventBusProtocol` formalizes
+  the interface `EventBus`'s own docstring already committed to since
+  Phase 1 (in-process, stable interface for a future broker) — a
+  `Protocol` since `EventBus` is a concrete class, not a subclass
+  hierarchy waiting to be created.
+- **Analytics agent filtering** is precisely scoped, not blanket: only
+  `task_counts_by_status`/`strategy_success_rates` have a direct
+  `agent_id` column and are filtered; tool/event/cost-derived stats are
+  read straight from `Event` rows with no join to `Task`, and `Event`
+  isn't one of the four tagged tables, so they stay honestly unfiltered.
+
 ### Dashboard
 - **`api/`, `web/static/`**: FastAPI + plain HTML/JS, no build step.
   Panels: New Task, Working Summary, Pending Approvals, Live Activity,
-  Task History, Memory Browser, Strategy/Workflow Browser, Experiment
-  Browser (with inline Promotion approvals), Curiosity, Bottleneck
-  Findings, Analytics, Reviews, Model Routing.
+  Task History (with an agent filter), Memory Browser, Strategy/Workflow
+  Browser, Experiment Browser (with inline Promotion approvals),
+  Curiosity, Bottleneck Findings, Analytics (with an agent filter),
+  Reviews, Model Routing, Plugins. A project/agent identity label sits in
+  the header.
 
 Persistence, config, and safety-guardrail details are documented inline
 in `src/megachud/config.py`, `src/megachud/db.py`, and
