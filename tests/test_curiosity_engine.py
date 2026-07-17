@@ -3,13 +3,16 @@ from __future__ import annotations
 import json
 
 from megachud.curiosity.engine import CuriosityHandler
+from megachud.curiosity.llm_generator import CuriosityText, CuriosityTextGenerator
 from megachud.events.bus import EventBus
 from megachud.events.logger import EventLogger
 from megachud.memory.store import MemoryStore
 from megachud.models.curiosity import PendingQuestion, ResearchObjective
 from megachud.models.evaluation import Evaluation
+from megachud.models.event import Event
 from megachud.models.reflection import Reflection
 from megachud.models.task import Task, TaskStatus
+from megachud.routing.engine import ModelProfile
 
 VECTOR_DIM = 128
 
@@ -168,3 +171,79 @@ def test_reflect_without_task_id_is_noop(session_factory):
     handler = build_handler(session_factory)
     logger = EventLogger(session_factory, EventBus(), on_event=handler)
     logger.log(event_type="task_completed", task_id=None, payload={})  # should not raise
+
+
+class _StubTextGenerator(CuriosityTextGenerator):
+    def __init__(self, text: CuriosityText) -> None:
+        self._text = text
+
+    def generate(self, task_title, task_prompt, best_prior_similarity, similarity_threshold) -> CuriosityText:
+        return self._text
+
+
+def test_injected_generator_supplies_question_and_description_text(session_factory):
+    stub_text = CuriosityText(
+        question="a custom LLM-authored question",
+        objective_descriptions={"search_memory": "custom search desc", "inspect_previous_work": "custom inspect desc"},
+    )
+    handler = CuriosityHandler(
+        session_factory, vector_dim=VECTOR_DIM, similarity_threshold=0.35, research_objective_top_k=3,
+        text_generator=_StubTextGenerator(stub_text),
+    )
+    task_id = create_task_with_reflection(session_factory, "an unprecedented novel task", become_long_term_knowledge=True)
+
+    logger = EventLogger(session_factory, EventBus(), on_event=handler)
+    logger.log(event_type="task_completed", task_id=task_id, payload={})
+
+    session = session_factory()
+    try:
+        question = session.query(PendingQuestion).filter_by(source_task_id=task_id).first()
+        objectives = {o.objective_type: o.description for o in session.query(ResearchObjective).filter_by(source_task_id=task_id).all()}
+        assert question.question == "a custom LLM-authored question"
+        assert objectives["search_memory"] == "custom search desc"
+        assert objectives["inspect_previous_work"] == "custom inspect desc"
+    finally:
+        session.close()
+
+
+def test_cost_event_logged_only_when_generator_reports_real_usage(session_factory):
+    stub_text = CuriosityText(
+        question="q", objective_descriptions={"search_memory": "s", "inspect_previous_work": "i"},
+        tokens_input=20, tokens_output=10, model="test-model",
+    )
+    profiles = [ModelProfile("test-model", cost_per_1k_input_tokens=0.001, cost_per_1k_output_tokens=0.002, quality_tier=1, est_latency_ms=100)]
+
+    bus = EventBus()
+    cost_logger = EventLogger(session_factory, bus)  # dispatch-free, same pattern api/app.py uses for llm_call events
+    handler = CuriosityHandler(
+        session_factory, vector_dim=VECTOR_DIM, similarity_threshold=0.35, research_objective_top_k=3,
+        text_generator=_StubTextGenerator(stub_text), event_logger=cost_logger, profiles=profiles,
+    )
+
+    task_id = create_task_with_reflection(session_factory, "an unprecedented novel task", become_long_term_knowledge=True)
+    dispatch_logger = EventLogger(session_factory, bus, on_event=handler)
+    dispatch_logger.log(event_type="task_completed", task_id=task_id, payload={})
+
+    session = session_factory()
+    try:
+        events = session.query(Event).filter_by(event_type="llm_call", task_id=task_id).all()
+        assert len(events) == 1
+        assert events[0].tool_name == "llm:curiosity"
+        assert events[0].tokens_input == 20
+        assert events[0].tokens_output == 10
+    finally:
+        session.close()
+
+
+def test_no_cost_event_with_default_deterministic_generator(session_factory):
+    handler = build_handler(session_factory)  # no text_generator/event_logger/profiles passed
+    task_id = create_task_with_reflection(session_factory, "an unprecedented novel task", become_long_term_knowledge=True)
+
+    logger = EventLogger(session_factory, EventBus(), on_event=handler)
+    logger.log(event_type="task_completed", task_id=task_id, payload={})
+
+    session = session_factory()
+    try:
+        assert session.query(Event).filter_by(event_type="llm_call").count() == 0
+    finally:
+        session.close()

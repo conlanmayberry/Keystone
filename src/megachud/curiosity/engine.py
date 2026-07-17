@@ -4,12 +4,15 @@ import json
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from megachud.curiosity.llm_generator import CuriosityText, CuriosityTextGenerator, DeterministicCuriosityTextGenerator
+from megachud.events.logger import EventLogger
 from megachud.memory.retrieval import search
 from megachud.models.curiosity import PendingQuestion, ResearchObjective
 from megachud.models.event import Event
 from megachud.models.memory_entry import MemoryType
 from megachud.models.reflection import Reflection
 from megachud.models.task import Task
+from megachud.routing.engine import ModelProfile, compute_cost_usd
 
 
 class CuriosityHandler:
@@ -19,6 +22,12 @@ class CuriosityHandler:
     become_long_term_knowledge=True, checks whether a close precedent
     already exists in SEMANTIC memory; if not, raises research objectives
     and a pending question — all local (no real web search this round).
+
+    Question/objective TEXT can come from an LLM (text_generator) — the
+    real local memory search, the self-match filter, the
+    become_long_term_knowledge trigger gate, and the similarity-threshold
+    comparison are all untouched regardless of which text_generator is
+    configured.
     """
 
     def __init__(
@@ -27,11 +36,17 @@ class CuriosityHandler:
         vector_dim: int,
         similarity_threshold: float,
         research_objective_top_k: int = 3,
+        text_generator: CuriosityTextGenerator | None = None,
+        event_logger: EventLogger | None = None,
+        profiles: list[ModelProfile] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._vector_dim = vector_dim
         self._similarity_threshold = similarity_threshold
         self._top_k = research_objective_top_k
+        self._text_generator = text_generator or DeterministicCuriosityTextGenerator()
+        self._event_logger = event_logger
+        self._profiles = profiles
 
     def __call__(self, event: Event) -> None:
         if event.event_type not in ("task_completed", "task_failed") or event.task_id is None:
@@ -56,9 +71,17 @@ class CuriosityHandler:
         if best_score >= self._similarity_threshold:
             return
 
-        self._raise_research_objective(task_id, reflection_id, "search_memory", task_prompt, None)
-        self._raise_research_objective(task_id, reflection_id, "inspect_previous_work", task_title, MemoryType.EPISODIC)
-        self._raise_pending_question(task_id, reflection_id, task_title, best_score)
+        text = self._text_generator.generate(task_title, task_prompt, best_score, self._similarity_threshold)
+        self._log_cost_if_real(task_id, text)
+
+        self._raise_research_objective(
+            task_id, reflection_id, "search_memory", task_prompt, None, text.objective_descriptions["search_memory"]
+        )
+        self._raise_research_objective(
+            task_id, reflection_id, "inspect_previous_work", task_title, MemoryType.EPISODIC,
+            text.objective_descriptions["inspect_previous_work"],
+        )
+        self._raise_pending_question(task_id, reflection_id, text.question)
 
     def _best_prior_similarity(self, task_id: str, query_text: str) -> float:
         """CRITICAL self-match guard: excludes any result whose
@@ -74,7 +97,7 @@ class CuriosityHandler:
         results = self._search_excluding_self(task_id, query_text, memory_type=MemoryType.SEMANTIC, limit=1)
         return results[0].score if results else 0.0
 
-    def _raise_research_objective(self, task_id, reflection_id, objective_type, query_text, memory_type):
+    def _raise_research_objective(self, task_id, reflection_id, objective_type, query_text, memory_type, description):
         results = self._search_excluding_self(task_id, query_text, memory_type=memory_type, limit=self._top_k)
         findings = [{"memory_entry_id": r.entry.id, "title": r.entry.title, "score": r.score} for r in results]
 
@@ -84,7 +107,7 @@ class CuriosityHandler:
                 source_task_id=task_id,
                 source_reflection_id=reflection_id,
                 objective_type=objective_type,
-                description=f"{objective_type} for: {query_text[:200]}",
+                description=description,
                 findings_json=json.dumps(findings),
                 resolved=True,
             )
@@ -93,20 +116,16 @@ class CuriosityHandler:
         finally:
             session.close()
 
-    def _raise_pending_question(self, task_id, reflection_id, task_title, best_score):
+    def _raise_pending_question(self, task_id, reflection_id, question):
         session = self._session_factory()
         try:
-            question = PendingQuestion(
+            pending = PendingQuestion(
                 source_task_id=task_id,
                 source_reflection_id=reflection_id,
-                question=(
-                    f"Task {task_title!r} produced a lesson with no close precedent "
-                    f"(best prior similarity {best_score:.2f} below threshold {self._similarity_threshold}). "
-                    "What is the right general approach for similar future tasks?"
-                ),
+                question=question,
                 context=f"triggered by become_long_term_knowledge reflection {reflection_id}",
             )
-            session.add(question)
+            session.add(pending)
             session.commit()
         finally:
             session.close()
@@ -120,3 +139,22 @@ class CuriosityHandler:
             top_k=limit + 1,
         )
         return [r for r in results if r.entry.source_task_id != task_id][:limit]
+
+    def _log_cost_if_real(self, task_id: str, text: CuriosityText) -> None:
+        # Only logs when real usage occurred — the deterministic path
+        # (tokens 0/0) never produces a misleading llm_call event.
+        if not (text.tokens_input or text.tokens_output):
+            return
+        if not self._event_logger or not self._profiles:
+            return
+        profile = next((p for p in self._profiles if p.name == text.model), None)
+        cost_usd = compute_cost_usd(profile, text.tokens_input, text.tokens_output) if profile is not None else None
+        self._event_logger.log(
+            event_type="llm_call",
+            task_id=task_id,
+            tool_name="llm:curiosity",
+            cost_usd=cost_usd,
+            tokens_input=text.tokens_input,
+            tokens_output=text.tokens_output,
+            payload={"model": text.model, "consumer": "curiosity"},
+        )
