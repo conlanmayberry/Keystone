@@ -119,3 +119,36 @@ def test_anthropic_api_key_never_appears_in_repr(tmp_path, monkeypatch):
 
     assert "sk-super-secret" not in repr(settings)
     assert "sk-super-secret" not in str(settings)
+
+
+def test_brave_api_key_from_dotenv(tmp_path, monkeypatch):
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    default_path = make_default_yaml(tmp_path)
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text("BRAVE_API_KEY=brave-test-key\n", encoding="utf-8")
+
+    settings = Settings.load(default_path=default_path, local_path=tmp_path / "missing.yaml", dotenv_path=dotenv_path)
+
+    assert settings.brave_api_key is not None
+    assert settings.brave_api_key.get_secret_value() == "brave-test-key"
+
+
+def test_no_brave_key_leaves_it_none(tmp_path, monkeypatch):
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    default_path = make_default_yaml(tmp_path)
+
+    settings = Settings.load(
+        default_path=default_path, local_path=tmp_path / "missing.yaml", dotenv_path=tmp_path / "missing.env"
+    )
+
+    assert settings.brave_api_key is None
+
+
+def test_brave_api_key_never_appears_in_repr(tmp_path, monkeypatch):
+    monkeypatch.setenv("BRAVE_API_KEY", "brave-super-secret")
+    default_path = make_default_yaml(tmp_path)
+
+    settings = Settings.load(default_path=default_path, local_path=tmp_path / "missing.yaml", dotenv_path=tmp_path / "missing.env")
+
+    assert "brave-super-secret" not in repr(settings)
+    assert "brave-super-secret" not in str(settings)

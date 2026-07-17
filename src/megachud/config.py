@@ -98,12 +98,18 @@ class DownloadConfig(BaseModel):
     max_redirects: int = 5
 
 
+class SearchConfig(BaseModel):
+    max_results: int = 10
+    timeout_seconds: float = 10.0
+
+
 class InternetConfig(BaseModel):
     # Empty = unrestricted — fetching any public URL is allowed by default.
     domain_allowlist: list[str] = []
     domain_denylist: list[str] = []
     fetch: FetchConfig = FetchConfig()
     download: DownloadConfig = DownloadConfig()
+    search: SearchConfig = SearchConfig()
 
 
 class LLMConfig(BaseModel):
@@ -127,6 +133,9 @@ class Settings(BaseModel):
     # real environment or .env (see Settings.load / _load_dotenv below).
     # SecretStr so it never appears in a repr()/str() of this object.
     anthropic_api_key: SecretStr | None = None
+    # Same rule: only from real env or .env. Only needed for the
+    # web_search tool — http_fetch/download_file work with no key at all.
+    brave_api_key: SecretStr | None = None
     api: ApiConfig = ApiConfig()
     approval: ApprovalConfig = ApprovalConfig()
     shell: ShellConfig = ShellConfig()
@@ -164,6 +173,7 @@ class Settings(BaseModel):
         # zero global side effects and no cross-test leakage risk.
         dotenv_values = _load_dotenv(dotenv_path)
         data["anthropic_api_key"] = os.environ.get("ANTHROPIC_API_KEY") or dotenv_values.get("ANTHROPIC_API_KEY")
+        data["brave_api_key"] = os.environ.get("BRAVE_API_KEY") or dotenv_values.get("BRAVE_API_KEY")
 
         return cls(**data)
 

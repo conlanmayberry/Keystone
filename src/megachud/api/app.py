@@ -54,6 +54,7 @@ from megachud.tools.file_tools import ReadFileTool, WriteFileTool
 from megachud.tools.internet_tools import DownloadFileTool, HttpFetchTool
 from megachud.tools.registry import ToolRegistry
 from megachud.tools.shell_tool import ShellExecTool
+from megachud.tools.web_search_tool import WebSearchTool
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
 
@@ -103,6 +104,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             domain_denylist=settings.internet.domain_denylist,
         )
     )
+    if settings.brave_api_key:
+        registry.register(
+            WebSearchTool(
+                settings.brave_api_key.get_secret_value(),
+                max_results=settings.internet.search.max_results,
+                timeout_seconds=settings.internet.search.timeout_seconds,
+            )
+        )
 
     model_profiles = [
         ModelProfile(

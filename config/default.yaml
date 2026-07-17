@@ -112,3 +112,6 @@ internet:
     blocked_extensions: [".exe", ".msi", ".bat", ".cmd", ".sh", ".ps1", ".dll", ".scr", ".com", ".jar"]
     timeout_seconds: 30.0
     max_redirects: 5
+  search:
+    max_results: 10
+    timeout_seconds: 10.0
