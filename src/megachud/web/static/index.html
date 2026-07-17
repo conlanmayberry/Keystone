@@ -8,180 +8,202 @@
 <body>
   <header>
     <h1>MegaChud</h1>
-    <span class="subtitle">Phase 1 — Reliable Core · Phase 2 — Memory · Phase 3 — Improvement · Phase 4 — Optimization · Phase 5 — Platform</span>
+    <nav id="tab-bar">
+      <button class="tab-btn active" data-tab="tab-run" type="button">Run</button>
+      <button class="tab-btn" data-tab="tab-tasks" type="button">Tasks</button>
+      <button class="tab-btn" data-tab="tab-memory" type="button">Memory</button>
+      <button class="tab-btn" data-tab="tab-improve" type="button">Improve</button>
+      <button class="tab-btn" data-tab="tab-insights" type="button">Insights</button>
+    </nav>
     <span class="identity-label" id="identity-label"></span>
   </header>
 
   <main>
-    <section class="panel" id="new-task-panel">
-      <h2>New Task</h2>
-      <form id="new-task-form">
-        <label>Title <input type="text" id="task-title" required /></label>
-        <label>Prompt <textarea id="task-prompt" rows="2" required></textarea></label>
-        <label class="inline-checkbox">
-          <input type="checkbox" id="task-auto-plan" /> Auto-plan (LLM) — let the configured LLM produce the tool-call plan from the prompt above
-        </label>
-        <label>
-          Tool calls (JSON array of {"tool_name","args"})
-          <textarea id="task-tool-calls" rows="4">[
+    <div class="tab-page active" id="tab-run">
+      <section class="panel" id="new-task-panel">
+        <h2>New Task</h2>
+        <form id="new-task-form">
+          <label>Title <input type="text" id="task-title" required /></label>
+          <label>Prompt <textarea id="task-prompt" rows="2" required></textarea></label>
+          <label class="inline-checkbox">
+            <input type="checkbox" id="task-auto-plan" /> Auto-plan (LLM) — let the configured LLM produce the tool-call plan from the prompt above
+          </label>
+          <label>
+            Tool calls (JSON array of {"tool_name","args"})
+            <textarea id="task-tool-calls" rows="4">[
   {"tool_name": "write_file", "args": {"path": "hello.txt", "content": "hi"}},
   {"tool_name": "read_file", "args": {"path": "hello.txt"}}
 ]</textarea>
-        </label>
-        <button type="submit">Run Task</button>
-      </form>
-      <p id="new-task-status"></p>
-    </section>
+          </label>
+          <button type="submit">Run Task</button>
+        </form>
+        <p id="new-task-status"></p>
+      </section>
 
-    <section class="panel" id="working-summary-panel">
-      <h2>Working Summary</h2>
-      <div id="working-summary">Select a task to see its working summary.</div>
-    </section>
+      <section class="panel" id="working-summary-panel">
+        <h2>Working Summary</h2>
+        <div id="working-summary" class="hint">Select a task on the Tasks tab to see its working summary.</div>
+      </section>
 
-    <section class="panel" id="approvals-panel">
-      <h2>Pending Approvals</h2>
-      <div id="approvals-list">No pending approvals.</div>
-    </section>
+      <section class="panel" id="approvals-panel">
+        <h2>Pending Approvals</h2>
+        <div id="approvals-list">No pending approvals.</div>
+      </section>
 
-    <section class="panel" id="activity-panel">
-      <h2>Live Activity</h2>
-      <div id="activity-feed"></div>
-    </section>
+      <section class="panel wide" id="activity-panel">
+        <h2>Live Activity</h2>
+        <div id="activity-feed"></div>
+      </section>
+    </div>
 
-    <section class="panel" id="tasks-panel">
-      <h2>Task History</h2>
-      <div class="agent-filter-row">
-        <label>Agent <select id="tasks-agent-filter"><option value="">All agents</option></select></label>
-      </div>
-      <table id="tasks-table">
-        <thead>
-          <tr><th>Title</th><th>Status</th><th>Created</th><th>Completed</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
+    <div class="tab-page" id="tab-tasks">
+      <section class="panel wide" id="tasks-panel">
+        <h2>Task History</h2>
+        <div class="agent-filter-row">
+          <label>Agent <select id="tasks-agent-filter"><option value="">All agents</option></select></label>
+        </div>
+        <table id="tasks-table">
+          <thead>
+            <tr><th>Title</th><th>Status</th><th>Created</th><th>Completed</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </div>
 
-    <section class="panel" id="memory-panel">
-      <h2>Memory Browser</h2>
-      <div class="memory-controls">
-        <select id="memory-type-filter">
-          <option value="">All types</option>
-          <option value="episodic">Episodic</option>
-          <option value="semantic">Semantic</option>
-          <option value="user">User</option>
-        </select>
-        <input type="text" id="memory-search-box" placeholder="Search memory..." />
-        <button id="memory-search-btn" type="button">Search</button>
-        <button id="memory-list-btn" type="button">List recent</button>
-        <button id="memory-reindex-btn" type="button">Reindex from vault</button>
-      </div>
-      <form id="new-memory-form">
-        <label>Title <input type="text" id="memory-title" required /></label>
-        <label>Content <textarea id="memory-content" rows="2" required></textarea></label>
-        <label>Tags (comma separated) <input type="text" id="memory-tags" /></label>
-        <button type="submit">Remember this</button>
-      </form>
-      <p id="memory-status"></p>
-      <div id="memory-results"></div>
-    </section>
+    <div class="tab-page" id="tab-memory">
+      <section class="panel wide" id="memory-panel">
+        <h2>Memory Browser</h2>
+        <div class="memory-controls">
+          <select id="memory-type-filter">
+            <option value="">All types</option>
+            <option value="episodic">Episodic</option>
+            <option value="semantic">Semantic</option>
+            <option value="user">User</option>
+          </select>
+          <input type="text" id="memory-search-box" placeholder="Search memory..." />
+          <button id="memory-search-btn" type="button">Search</button>
+          <button id="memory-list-btn" type="button" class="secondary">List recent</button>
+          <button id="memory-reindex-btn" type="button" class="secondary">Reindex from vault</button>
+        </div>
+        <details id="new-memory-details">
+          <summary>Add a memory</summary>
+          <form id="new-memory-form">
+            <label>Title <input type="text" id="memory-title" required /></label>
+            <label>Content <textarea id="memory-content" rows="2" required></textarea></label>
+            <label>Tags (comma separated) <input type="text" id="memory-tags" /></label>
+            <button type="submit">Remember this</button>
+          </form>
+        </details>
+        <p id="memory-status"></p>
+        <div id="memory-results"></div>
+      </section>
 
-    <section class="panel" id="strategy-panel">
-      <h2>Strategy / Workflow Browser</h2>
-      <div id="strategy-list"></div>
-      <form id="invoke-strategy-form">
-        <label>Strategy ID <input type="text" id="invoke-strategy-id" required /></label>
-        <label>Params (JSON object) <textarea id="invoke-strategy-params" rows="2">{}</textarea></label>
-        <button type="submit">Invoke</button>
-      </form>
-      <p id="strategy-status"></p>
-    </section>
+      <section class="panel wide" id="curiosity-panel">
+        <h2>Curiosity</h2>
+        <h3>Pending Questions</h3>
+        <div id="question-list">No pending questions.</div>
+        <h3>Research Objectives</h3>
+        <div id="objective-list"></div>
+      </section>
+    </div>
 
-    <section class="panel" id="experiment-panel">
-      <h2>Experiment Browser</h2>
-      <div id="experiment-list"></div>
-      <form id="new-experiment-form">
-        <label>Workflow name <input type="text" id="experiment-workflow-name" required /></label>
-        <label>Hypothesis <input type="text" id="experiment-hypothesis" required /></label>
-        <label>Control strategy ID <input type="text" id="experiment-control-id" required /></label>
-        <label>Variant strategy ID <input type="text" id="experiment-variant-id" required /></label>
-        <label>Minimum sample size <input type="number" id="experiment-min-samples" value="10" /></label>
-        <button type="submit">Create experiment</button>
-      </form>
-      <p id="experiment-status"></p>
-      <h3>Pending Promotions</h3>
-      <div id="promotion-list">No pending promotions.</div>
-    </section>
+    <div class="tab-page" id="tab-improve">
+      <section class="panel" id="strategy-panel">
+        <h2>Strategies</h2>
+        <div id="strategy-list"></div>
+        <form id="invoke-strategy-form">
+          <label>Strategy ID <input type="text" id="invoke-strategy-id" required /></label>
+          <label>Params (JSON object) <textarea id="invoke-strategy-params" rows="2">{}</textarea></label>
+          <button type="submit">Invoke</button>
+        </form>
+        <p id="strategy-status"></p>
+      </section>
 
-    <section class="panel" id="curiosity-panel">
-      <h2>Curiosity</h2>
-      <h3>Pending Questions</h3>
-      <div id="question-list">No pending questions.</div>
-      <h3>Research Objectives</h3>
-      <div id="objective-list"></div>
-    </section>
+      <section class="panel" id="bottleneck-panel">
+        <h2>Bottleneck Findings</h2>
+        <button id="bottleneck-scan-btn" type="button">Scan now</button>
+        <div id="bottleneck-list"></div>
+      </section>
 
-    <section class="panel" id="bottleneck-panel">
-      <h2>Bottleneck Findings</h2>
-      <button id="bottleneck-scan-btn" type="button">Scan now</button>
-      <div id="bottleneck-list"></div>
-    </section>
+      <section class="panel wide" id="experiment-panel">
+        <h2>Experiments</h2>
+        <div id="experiment-list"></div>
+        <details id="new-experiment-details">
+          <summary>Create an experiment</summary>
+          <form id="new-experiment-form">
+            <label>Workflow name <input type="text" id="experiment-workflow-name" required /></label>
+            <label>Hypothesis <input type="text" id="experiment-hypothesis" required /></label>
+            <label>Control strategy ID <input type="text" id="experiment-control-id" required /></label>
+            <label>Variant strategy ID <input type="text" id="experiment-variant-id" required /></label>
+            <label>Minimum sample size <input type="number" id="experiment-min-samples" value="10" /></label>
+            <button type="submit">Create experiment</button>
+          </form>
+        </details>
+        <p id="experiment-status"></p>
+        <h3>Pending Promotions</h3>
+        <div id="promotion-list">No pending promotions.</div>
+      </section>
+    </div>
 
-    <section class="panel" id="analytics-panel">
-      <h2>Analytics</h2>
-      <div class="analytics-controls">
-        <label>Window (hours) <input type="number" id="analytics-window-hours" value="24" /></label>
-        <label>Agent <select id="analytics-agent-filter"><option value="">All agents</option></select></label>
-        <button id="analytics-refresh-btn" type="button">Refresh</button>
-      </div>
-      <div id="analytics-cost-banner"></div>
-      <div id="analytics-results"></div>
-    </section>
+    <div class="tab-page" id="tab-insights">
+      <section class="panel wide" id="analytics-panel">
+        <h2>Analytics</h2>
+        <div class="analytics-controls">
+          <label>Window (hours) <input type="number" id="analytics-window-hours" value="24" /></label>
+          <label>Agent <select id="analytics-agent-filter"><option value="">All agents</option></select></label>
+          <button id="analytics-refresh-btn" type="button">Refresh</button>
+        </div>
+        <div id="analytics-cost-banner"></div>
+        <div id="analytics-results"></div>
+      </section>
 
-    <section class="panel" id="review-panel">
-      <h2>Reviews</h2>
-      <div class="review-controls">
-        <select id="review-kind-select">
-          <option value="hourly">Hourly</option>
-          <option value="weekly">Weekly</option>
-        </select>
-        <button id="review-preview-btn" type="button">Preview</button>
-        <button id="review-generate-btn" type="button">Generate now</button>
-      </div>
-      <div id="review-report">No review generated yet — click Preview or Generate now.</div>
-      <h3>Past Reviews</h3>
-      <div id="review-history"></div>
-    </section>
+      <section class="panel" id="review-panel">
+        <h2>Reviews</h2>
+        <div class="review-controls">
+          <select id="review-kind-select">
+            <option value="hourly">Hourly</option>
+            <option value="weekly">Weekly</option>
+          </select>
+          <button id="review-preview-btn" type="button">Preview</button>
+          <button id="review-generate-btn" type="button" class="secondary">Generate now</button>
+        </div>
+        <div id="review-report" class="hint">No review generated yet — click Preview or Generate now.</div>
+        <h3>Past Reviews</h3>
+        <div id="review-history"></div>
+      </section>
 
-    <section class="panel" id="routing-panel">
-      <h2>Model Routing</h2>
-      <p class="memory-meta">Simulation only — no real model is ever called.</p>
-      <form id="routing-simulate-form">
-        <label>Task type <input type="text" id="routing-task-type" value="coding" required /></label>
-        <label>Quality target <input type="number" id="routing-quality-target" value="2" required /></label>
-        <label>Est. input tokens <input type="number" id="routing-est-input" value="1000" /></label>
-        <label>Est. output tokens <input type="number" id="routing-est-output" value="500" /></label>
-        <button type="submit">Simulate route</button>
-      </form>
-      <div id="routing-decision"></div>
-      <h3>Configured Profiles</h3>
-      <table id="routing-profiles-table">
-        <thead>
-          <tr><th>Name</th><th>Quality tier</th><th>Cost/1k in</th><th>Cost/1k out</th><th>Latency (ms)</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
+      <section class="panel" id="routing-panel">
+        <h2>Model Routing</h2>
+        <p class="hint">Simulation only — no real model is ever called.</p>
+        <form id="routing-simulate-form">
+          <label>Task type <input type="text" id="routing-task-type" value="coding" required /></label>
+          <label>Quality target <input type="number" id="routing-quality-target" value="2" required /></label>
+          <label>Est. input tokens <input type="number" id="routing-est-input" value="1000" /></label>
+          <label>Est. output tokens <input type="number" id="routing-est-output" value="500" /></label>
+          <button type="submit">Simulate route</button>
+        </form>
+        <div id="routing-decision"></div>
+        <h3>Configured Profiles</h3>
+        <table id="routing-profiles-table">
+          <thead>
+            <tr><th>Name</th><th>Quality tier</th><th>Cost/1k in</th><th>Cost/1k out</th><th>Latency (ms)</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
 
-    <section class="panel" id="plugins-panel">
-      <h2>Plugins</h2>
-      <p class="memory-meta">Read-only — reflects what loaded at startup. Enable/disable via config + restart.</p>
-      <table id="plugins-table">
-        <thead>
-          <tr><th>Name</th><th>Source</th><th>Status</th><th>Error</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
+      <section class="panel wide" id="plugins-panel">
+        <h2>Plugins</h2>
+        <p class="hint">Read-only — reflects what loaded at startup. Enable/disable via config + restart.</p>
+        <table id="plugins-table">
+          <thead>
+            <tr><th>Name</th><th>Source</th><th>Status</th><th>Error</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </div>
   </main>
 
   <script src="/static/app.js"></script>

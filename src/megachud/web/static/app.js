@@ -4,6 +4,26 @@ function el(id) {
   return document.getElementById(id);
 }
 
+// --- Tabs ---
+
+function activateTab(tabId) {
+  for (const btn of document.querySelectorAll(".tab-btn")) {
+    btn.classList.toggle("active", btn.dataset.tab === tabId);
+  }
+  for (const page of document.querySelectorAll(".tab-page")) {
+    page.classList.toggle("active", page.id === tabId);
+  }
+  localStorage.setItem("megachud-tab", tabId);
+}
+
+for (const btn of document.querySelectorAll(".tab-btn")) {
+  btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+}
+const savedTab = localStorage.getItem("megachud-tab");
+if (savedTab && document.getElementById(savedTab)) {
+  activateTab(savedTab);
+}
+
 async function fetchJson(url, options) {
   const response = await fetch(url, options);
   if (!response.ok) {
@@ -67,6 +87,7 @@ async function refreshTasks() {
 
 async function selectTask(taskId) {
   selectedTaskId = taskId;
+  activateTab("tab-run"); // working summary lives on the Run tab
   const summary = await fetchJson(`/tasks/${taskId}/working_summary`);
   const container = el("working-summary");
   container.innerHTML = `
@@ -467,7 +488,7 @@ function renderAnalytics(report) {
   const banner = el("analytics-cost-banner");
   banner.innerHTML = report.cost_data_available
     ? `<div class="cost-banner success">Total cost: $${report.total_cost_usd.toFixed(4)} (in=${report.total_tokens_input} out=${report.total_tokens_output} tokens)</div>`
-    : `<div class="cost-banner">No cost data yet — no LLM calls have been made in this codebase.</div>`;
+    : `<div class="cost-banner">No cost data yet — no LLM calls were recorded in this window.</div>`;
 
   const statusRows = Object.entries(report.task_counts_by_status)
     .map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`)
