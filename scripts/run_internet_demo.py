@@ -13,6 +13,7 @@ scripts/run_llm_demo.py's no-key path.
 from __future__ import annotations
 
 import json
+import sys
 
 from megachud.api.app import create_app
 from megachud.config import Settings
@@ -93,6 +94,11 @@ def print_downloads_usage(settings: Settings) -> None:
 
 
 def main() -> None:
+    # Search results are arbitrary internet text and may contain characters
+    # outside the Windows console's default cp1252 codec (e.g. emoji) —
+    # replace what can't be displayed rather than crashing the whole demo.
+    sys.stdout.reconfigure(errors="replace")
+
     settings = Settings.load()
     app = create_app(settings)
 
