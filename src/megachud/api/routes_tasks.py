@@ -47,6 +47,7 @@ def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateRespo
             title=payload.title,
             prompt=payload.prompt,
             plan_json=json.dumps(plan),
+            execution_mode=payload.execution_mode,
             agent_id=request.app.state.current_agent_id,
             project_name=request.app.state.settings.project_name,
         )

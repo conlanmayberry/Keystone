@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -17,6 +17,11 @@ class TaskCreateRequest(BaseModel):
     # If true, tool_calls must be empty — the server asks the LLM planner
     # to produce plan_json from `prompt` instead of the caller supplying it.
     auto_plan: bool = False
+    # "semi_manual" is deliberately excluded here (422s via the Literal) —
+    # it only means something as a pre-creation gate tied to a
+    # conversation message (see ConversationMessageCreateRequest below);
+    # plain /tasks has no such step.
+    execution_mode: Literal["auto", "full_manual"] = "auto"
 
 
 class TaskCreateResponse(BaseModel):
@@ -302,3 +307,36 @@ class PluginLoadResultSummary(BaseModel):
     source: str
     success: bool
     error: str | None = None
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    created_at: str
+    message_count: int
+    last_message_preview: str | None = None
+
+
+class ConversationMessageSummary(BaseModel):
+    id: str
+    role: str
+    content: str
+    created_at: str
+    linked_task_id: str | None = None
+    proposed_plan: list[dict[str, Any]] | None = None
+    plan_status: str | None = None
+    execution_mode: str | None = None
+
+
+class ConversationMessageCreateRequest(BaseModel):
+    content: str
+    execution_mode: Literal["auto", "semi_manual", "full_manual"] = "auto"
+
+
+class ConversationMessageCreateResponse(BaseModel):
+    user_message: ConversationMessageSummary
+    assistant_message: ConversationMessageSummary
+
+
+class PlanDecisionResponse(BaseModel):
+    message: ConversationMessageSummary
+    task_id: str | None = None

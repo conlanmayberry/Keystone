@@ -16,6 +16,7 @@ from megachud.api import (
     routes_analytics,
     routes_approvals,
     routes_bottleneck,
+    routes_conversations,
     routes_curiosity,
     routes_experiment,
     routes_memory,
@@ -29,6 +30,7 @@ from megachud.api import (
     ws,
 )
 from megachud.config import Settings
+from megachud.conversation.engine import ConversationEngine
 from megachud.curiosity.engine import CuriosityHandler
 from megachud.curiosity.llm_generator import LLMCuriosityTextGenerator
 from megachud.db import (
@@ -217,6 +219,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else None
     )
 
+    conversation_engine = (
+        ConversationEngine(
+            llm_client,
+            registry,
+            model=settings.llm.default_conversation_model,
+            max_tokens=settings.llm.conversation_max_tokens,
+        )
+        if llm_client is not None
+        else None
+    )
+
     curiosity_text_generator = (
         LLMCuriosityTextGenerator(
             llm_client, model=settings.llm.default_curiosity_model, max_tokens=settings.llm.curiosity_max_tokens
@@ -306,9 +319,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.current_agent_id = current_agent_id
     app.state.llm_client = llm_client
     app.state.llm_task_planner = llm_task_planner
+    app.state.conversation_engine = conversation_engine
     app.state.executor = ThreadPoolExecutor(max_workers=4)
 
     app.include_router(routes_tasks.router)
+    app.include_router(routes_conversations.router)
     app.include_router(routes_approvals.router)
     app.include_router(routes_memory.router)
     app.include_router(routes_strategy.router)

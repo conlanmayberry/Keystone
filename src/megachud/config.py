@@ -132,10 +132,12 @@ class LLMConfig(BaseModel):
     default_reflection_model: str = "claude-haiku-4-5-20251001"
     default_planner_model: str = "claude-sonnet-5"
     default_curiosity_model: str = "claude-haiku-4-5-20251001"
+    default_conversation_model: str = "claude-sonnet-5"
     reflection_max_tokens: int = 4096
     planner_max_tokens: int = 4096
     # A question + 2 short descriptions needs far less than a full plan.
     curiosity_max_tokens: int = 1024
+    conversation_max_tokens: int = 4096
     timeout_seconds: float = 60.0
 
 

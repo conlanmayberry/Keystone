@@ -40,10 +40,10 @@ def make_orchestrator(session_factory, tmp_workspace, extra_tools=(), approval_t
     return orchestrator, approval_gate
 
 
-def create_task(session_factory, plan) -> str:
+def create_task(session_factory, plan, execution_mode=None) -> str:
     session = session_factory()
     try:
-        task = Task(title="t", prompt="p", plan_json=json.dumps(plan))
+        task = Task(title="t", prompt="p", plan_json=json.dumps(plan), execution_mode=execution_mode)
         session.add(task)
         session.commit()
         return task.id
@@ -95,6 +95,68 @@ def test_high_risk_tool_blocks_until_approved_then_succeeds(session_factory, tmp
     thread.start()
     result = orchestrator.run_task(task_id)
     thread.join()
+
+    assert result.status == TaskStatus.SUCCEEDED
+
+
+def test_full_manual_mode_gates_even_a_low_risk_tool(session_factory, tmp_workspace):
+    # ReadFileTool is RiskLevel.LOW — never gated in "auto" mode. Proves
+    # full_manual's gating condition fires regardless of risk_level, not
+    # just for HIGH_IRREVERSIBLE tools, using no new dummy fixture.
+    (tmp_workspace / "a.txt").write_text("hi", encoding="utf-8")
+    orchestrator, gate = make_orchestrator(session_factory, tmp_workspace)
+    plan = [{"tool_name": "read_file", "args": {"path": "a.txt"}}]
+    task_id = create_task(session_factory, plan, execution_mode="full_manual")
+
+    def approve_soon():
+        time.sleep(0.15)
+        session = session_factory()
+        try:
+            approval = session.query(ApprovalRequest).filter_by(task_id=task_id).one()
+            approval_id = approval.id
+        finally:
+            session.close()
+        gate.resolve(approval_id, approved=True, note="approved in test", resolved_by="tester")
+
+    thread = threading.Thread(target=approve_soon)
+    thread.start()
+    result = orchestrator.run_task(task_id)
+    thread.join()
+
+    assert result.status == TaskStatus.SUCCEEDED
+
+
+def test_full_manual_mode_denied_step_fails_task(session_factory, tmp_workspace):
+    (tmp_workspace / "a.txt").write_text("hi", encoding="utf-8")
+    orchestrator, gate = make_orchestrator(session_factory, tmp_workspace)
+    plan = [{"tool_name": "read_file", "args": {"path": "a.txt"}}]
+    task_id = create_task(session_factory, plan, execution_mode="full_manual")
+
+    def deny_soon():
+        time.sleep(0.15)
+        session = session_factory()
+        try:
+            approval = session.query(ApprovalRequest).filter_by(task_id=task_id).one()
+            approval_id = approval.id
+        finally:
+            session.close()
+        gate.resolve(approval_id, approved=False, note="denied in test", resolved_by="tester")
+
+    thread = threading.Thread(target=deny_soon)
+    thread.start()
+    result = orchestrator.run_task(task_id)
+    thread.join()
+
+    assert result.status == TaskStatus.FAILED
+
+
+def test_auto_mode_does_not_gate_a_low_risk_tool(session_factory, tmp_workspace):
+    (tmp_workspace / "a.txt").write_text("hi", encoding="utf-8")
+    orchestrator, _ = make_orchestrator(session_factory, tmp_workspace)
+    plan = [{"tool_name": "read_file", "args": {"path": "a.txt"}}]
+    task_id = create_task(session_factory, plan, execution_mode="auto")
+
+    result = orchestrator.run_task(task_id)  # no approval thread — must not block
 
     assert result.status == TaskStatus.SUCCEEDED
 

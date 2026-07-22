@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,6 +18,12 @@ from megachud.orchestrator.retries import RetryPolicy
 from megachud.orchestrator.task_models import ToolCall
 from megachud.tools.base import ToolResult
 from megachud.tools.registry import ToolRegistry
+
+
+@dataclass
+class _StartedTask:
+    plan: list[ToolCall]
+    execution_mode: str  # NULL on the Task row normalizes to "auto" here, never None downstream
 
 
 class Orchestrator:
@@ -57,14 +64,21 @@ class Orchestrator:
             current_task_id.reset(token)
 
     def _run_task(self, task_id: str) -> Task:
-        plan = self._start_task(task_id)
+        started = self._start_task(task_id)
+        plan = started.plan
         self._event_logger.log(event_type="task_started", task_id=task_id, payload={"plan_length": len(plan)})
 
         step_results: list[ToolResult] = []
         for call in plan:
             tool = self._tool_registry.get(call.tool_name)
 
-            if tool.risk_level == RiskLevel.HIGH_IRREVERSIBLE:
+            # full_manual gates every tool call regardless of risk_level,
+            # reusing the exact same ApprovalGate — no new approval
+            # machinery, just a broader condition. auto/semi_manual behave
+            # identically here; the semi/auto distinction is entirely
+            # about whether a human approved the plan before this Task
+            # existed (see api/routes_conversations.py).
+            if started.execution_mode == "full_manual" or tool.risk_level == RiskLevel.HIGH_IRREVERSIBLE:
                 decision = self._approval_gate.request_and_wait(task_id, tool, call.args)
                 if not decision.approved:
                     return self._fail_task(task_id, f"approval not granted for {tool.name}: {decision.status.value}")
@@ -145,15 +159,16 @@ class Orchestrator:
         self._event_logger.log(event_type="task_failed", task_id=task_id, payload={"reason": reason})
         return finished
 
-    def _start_task(self, task_id: str) -> list[ToolCall]:
+    def _start_task(self, task_id: str) -> _StartedTask:
         session = self._session_factory()
         try:
             task = session.get(Task, task_id)
             task.status = TaskStatus.RUNNING
             task.started_at = datetime.now(timezone.utc)
             plan_raw = json.loads(task.plan_json)
+            execution_mode = task.execution_mode or "auto"
             session.commit()
-            return [ToolCall(**item) for item in plan_raw]
+            return _StartedTask(plan=[ToolCall(**item) for item in plan_raw], execution_mode=execution_mode)
         finally:
             session.close()
 
