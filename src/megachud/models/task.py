@@ -38,3 +38,12 @@ class Task(UUIDPKMixin, CreatedAtMixin, Base):
     # NULL, which is fine and honest.
     agent_id: Mapped[str | None] = mapped_column(ForeignKey("agents.id"), nullable=True)
     project_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    # Auto/Semi-Manual/Full-Manual (chat interface). NULL normalizes to
+    # "auto" at read time (Orchestrator._start_task) — every existing row
+    # stays correct as-is. Only "full_manual" changes orchestrator
+    # behavior (gates every tool call, not just HIGH_IRREVERSIBLE);
+    # "auto" and "semi_manual" are execution-time identical — the
+    # distinction is entirely about whether a human approved the plan
+    # before the Task existed.
+    execution_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)

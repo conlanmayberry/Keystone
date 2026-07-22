@@ -25,7 +25,7 @@ def init_db(engine: Engine) -> None:
     # Importing models registers them on Base.metadata before create_all.
     from megachud.models import approval, evaluation, event, memory_entry, reflection, task  # noqa: F401
     from megachud.models import strategy, experiment, promotion_request, curiosity, review  # noqa: F401
-    from megachud.models import agent  # noqa: F401
+    from megachud.models import agent, conversation  # noqa: F401
 
     Base.metadata.create_all(engine)
 
@@ -61,6 +61,21 @@ def ensure_agent_project_columns(engine: Engine) -> None:
             for column in TAG_COLUMNS:
                 if column not in existing_columns:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} TEXT"))
+
+
+def ensure_task_execution_mode_column(engine: Engine) -> None:
+    """tasks.execution_mode is new (the chat interface's Auto/Semi-Manual/
+    Full-Manual modes) — dev DBs from every phase before this one need it
+    patched on, same rationale as ensure_agent_project_columns. Nullable,
+    no backfill: Orchestrator._start_task treats NULL as "auto" at read
+    time, so leaving existing rows NULL is correct, not just convenient.
+    """
+    inspector = inspect(engine)
+    if "tasks" not in inspector.get_table_names():
+        return
+    if "execution_mode" not in {col["name"] for col in inspector.get_columns("tasks")}:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN execution_mode TEXT"))
 
 
 def get_or_create_agent(session_factory: sessionmaker[Session], name: str) -> str:

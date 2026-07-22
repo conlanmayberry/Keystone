@@ -31,7 +31,14 @@ from megachud.api import (
 from megachud.config import Settings
 from megachud.curiosity.engine import CuriosityHandler
 from megachud.curiosity.llm_generator import LLMCuriosityTextGenerator
-from megachud.db import ensure_agent_project_columns, get_engine, get_or_create_agent, init_db, make_session_factory
+from megachud.db import (
+    ensure_agent_project_columns,
+    ensure_task_execution_mode_column,
+    get_engine,
+    get_or_create_agent,
+    init_db,
+    make_session_factory,
+)
 from megachud.evaluation.checks import check_python_syntax, check_tests_pass, check_tool_calls_succeeded
 from megachud.evaluation.engine import EvaluationEngine
 from megachud.events.bus import EventBus
@@ -74,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = get_engine(settings.db_path)
     init_db(engine)
     ensure_agent_project_columns(engine)
+    ensure_task_execution_mode_column(engine)
     session_factory = make_session_factory(engine)
 
     bus = EventBus()
