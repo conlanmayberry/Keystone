@@ -32,6 +32,7 @@ class FakePage:
         links: list[dict[str, str]] | None = None,
         a11y: Any = None,
         goto_status: int = 200,
+        elements: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self._title = title
         self.url = url
@@ -39,6 +40,11 @@ class FakePage:
         self._links = links if links is not None else []
         self._a11y = a11y if a11y is not None else {"role": "WebArea", "name": title}
         self._goto_status = goto_status
+        # selector -> element-info dict {tag, type, inForm, text} for
+        # browser_click's inspection heuristic; unknown selectors raise,
+        # mirroring Playwright's eval_on_selector on a missing element.
+        self._elements = elements or {}
+
         self.accessibility = FakeAccessibility(self._a11y)
 
         self.navigations: list[str] = []
@@ -64,6 +70,17 @@ class FakePage:
 
     def eval_on_selector_all(self, selector: str, js: str) -> list[dict[str, str]]:
         return self._links
+
+    def eval_on_selector(self, selector: str, js: str) -> dict[str, Any]:
+        if selector not in self._elements:
+            raise RuntimeError(f"no element matches selector {selector!r}")
+        return self._elements[selector]
+
+    def fill(self, selector: str, text: str) -> None:
+        self.fills.append((selector, text))
+
+    def click(self, selector: str) -> None:
+        self.clicks.append(selector)
 
 
 def make_fake_factory(page: FakePage) -> tuple[Any, dict[str, int]]:

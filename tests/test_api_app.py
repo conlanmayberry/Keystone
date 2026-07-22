@@ -47,3 +47,13 @@ def test_browser_read_only_tools_always_registered(test_settings):
     assert app.state.tool_registry.get("browser_navigate").name == "browser_navigate"
     assert app.state.tool_registry.get("browser_read").name == "browser_read"
     assert app.state.browser_manager is not None
+
+
+def test_browser_interaction_tools_registered(test_settings):
+    from megachud.models.approval import RiskLevel
+
+    app = create_app(test_settings)
+    registry = app.state.tool_registry
+    assert registry.get("browser_fill").name == "browser_fill"
+    assert registry.get("browser_click").name == "browser_click"
+    assert registry.get("browser_submit").risk_level == RiskLevel.HIGH_IRREVERSIBLE

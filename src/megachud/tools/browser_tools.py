@@ -26,6 +26,8 @@ class _BrowserToolBase(Tool):
         self._manager = manager
 
     def _session_or_error(self) -> tuple[Any, ToolResult | None]:
+        """For browser_navigate: opens (lazily launching) this task's
+        session, creating it if needed."""
         task_id = current_task_id.get()
         if task_id is None:
             return None, ToolResult(
@@ -35,6 +37,21 @@ class _BrowserToolBase(Tool):
             return self._manager.get_or_create(task_id), None
         except (BrowserUnavailableError, BrowserSessionLimitError) as exc:
             return None, ToolResult(success=False, output="", error=str(exc))
+
+    def _require_open_page(self) -> tuple[Any, ToolResult | None]:
+        """For every tool except navigate: requires a page already opened
+        by a prior browser_navigate in this task, rather than silently
+        launching a blank one."""
+        task_id = current_task_id.get()
+        if task_id is None:
+            return None, ToolResult(
+                success=False, output="", error="browser tools can only run inside a task"
+            )
+        if not self._manager.has_session(task_id):
+            return None, ToolResult(
+                success=False, output="", error="no page open — call browser_navigate first"
+            )
+        return self._manager.get_or_create(task_id), None
 
 
 class BrowserNavigateTool(_BrowserToolBase):
@@ -109,14 +126,7 @@ class BrowserReadTool(_BrowserToolBase):
         self.validate_args(args)
         mode = args.get("mode", "text")
 
-        task_id = current_task_id.get()
-        if task_id is None:
-            return ToolResult(success=False, output="", error="browser tools can only run inside a task")
-        if not self._manager.has_session(task_id):
-            return ToolResult(
-                success=False, output="", error="no page open — call browser_navigate first"
-            )
-        session, error = self._session_or_error()
+        session, error = self._require_open_page()
         if error is not None:
             return error
 
@@ -148,3 +158,144 @@ class BrowserReadTool(_BrowserToolBase):
             )
         except Exception as exc:
             return ToolResult(success=False, output="", error=f"read failed: {exc}")
+
+
+# JS run against a click target to classify it — see _is_state_changing.
+_ELEMENT_INFO_JS = """el => ({
+    tag: el.tagName.toLowerCase(),
+    type: (el.getAttribute('type') || '').toLowerCase(),
+    inForm: !!el.closest('form'),
+    text: (el.innerText || el.value || el.getAttribute('aria-label') || '').trim().toLowerCase(),
+})"""
+
+
+def _is_state_changing(info: dict[str, Any], denylist: list[str]) -> bool:
+    """Best-effort classification of a click target. Honest caveat: this
+    inspects static DOM attributes and visible text; a JS onclick handler
+    or a control disguised as a plain link can still change state without
+    tripping any of these, so this is a guardrail, not a guarantee — the
+    approval gate is the real protection, and browser_submit routes there.
+    """
+    tag = info.get("tag", "")
+    type_ = info.get("type", "")
+    in_form = bool(info.get("inForm"))
+    text = info.get("text", "")
+
+    if type_ in ("submit", "image"):
+        return True
+    # A <button> with no explicit type defaults to submit inside a form.
+    if tag == "button" and type_ not in ("button", "reset") and in_form:
+        return True
+    return any(word in text for word in denylist)
+
+
+class BrowserFillTool(_BrowserToolBase):
+    name = "browser_fill"
+    description = (
+        "Type text into a form field on the current page (does not submit "
+        "— filling a field cannot change remote state on its own). "
+        "Navigate first with browser_navigate."
+    )
+    risk_level = RiskLevel.MEDIUM
+
+    def validate_args(self, args: dict[str, Any]) -> None:
+        if not isinstance(args.get("selector"), str) or not args["selector"].strip():
+            raise ToolValidationError("'selector' (non-empty str) is required")
+        if not isinstance(args.get("text"), str):
+            raise ToolValidationError("'text' (str) is required")
+
+    def run(self, args: dict[str, Any]) -> ToolResult:
+        self.validate_args(args)
+        session, error = self._require_open_page()
+        if error is not None:
+            return error
+        try:
+            session.page.fill(args["selector"], args["text"])
+        except Exception as exc:
+            return ToolResult(success=False, output="", error=f"fill failed: {exc}")
+        return ToolResult(
+            success=True, output=f"filled {args['selector']}", metadata={"selector": args["selector"]}
+        )
+
+
+class BrowserClickTool(_BrowserToolBase):
+    name = "browser_click"
+    description = (
+        "Click an element (e.g. a link or a plain button) on the current "
+        "page. Refuses anything that looks state-changing (a submit "
+        "button, a button inside a form, or text like buy/pay/delete) and "
+        "tells you to use browser_submit instead, which is approval-gated. "
+        "Navigate first with browser_navigate."
+    )
+    risk_level = RiskLevel.MEDIUM
+
+    def __init__(self, manager: BrowserSessionManager, *, state_changing_button_text: list[str] | None = None) -> None:
+        super().__init__(manager)
+        self._denylist = [w.lower() for w in (state_changing_button_text or [])]
+
+    def validate_args(self, args: dict[str, Any]) -> None:
+        if not isinstance(args.get("selector"), str) or not args["selector"].strip():
+            raise ToolValidationError("'selector' (non-empty str) is required")
+
+    def run(self, args: dict[str, Any]) -> ToolResult:
+        self.validate_args(args)
+        selector = args["selector"]
+        session, error = self._require_open_page()
+        if error is not None:
+            return error
+
+        try:
+            info = session.page.eval_on_selector(selector, _ELEMENT_INFO_JS)
+        except Exception:
+            return ToolResult(success=False, output="", error=f"no element matches selector {selector!r}")
+
+        if _is_state_changing(info, self._denylist):
+            return ToolResult(
+                success=False,
+                output="",
+                error=(
+                    f"{selector!r} looks state-changing (submit/form/denylisted text); "
+                    "use browser_submit instead — it routes through the human approval gate"
+                ),
+            )
+
+        try:
+            session.page.click(selector)
+        except Exception as exc:
+            return ToolResult(success=False, output="", error=f"click failed: {exc}")
+        return ToolResult(
+            success=True, output=f"clicked {selector}", metadata={"selector": selector, "url": session.page.url}
+        )
+
+
+class BrowserSubmitTool(_BrowserToolBase):
+    name = "browser_submit"
+    description = (
+        "Submit a form / click a control that changes remote state (e.g. "
+        "a submit button, a purchase or send action). HIGH-RISK: every "
+        "call is routed through the human approval gate before it runs. "
+        "Navigate and fill any fields first."
+    )
+    risk_level = RiskLevel.HIGH_IRREVERSIBLE
+
+    def validate_args(self, args: dict[str, Any]) -> None:
+        if not isinstance(args.get("selector"), str) or not args["selector"].strip():
+            raise ToolValidationError("'selector' (non-empty str) is required")
+
+    def run(self, args: dict[str, Any]) -> ToolResult:
+        # By the time run() is reached, the orchestrator has already
+        # obtained human approval (RiskLevel.HIGH_IRREVERSIBLE routes
+        # through ApprovalGate.request_and_wait). This tool just performs
+        # the approved click.
+        self.validate_args(args)
+        selector = args["selector"]
+        session, error = self._require_open_page()
+        if error is not None:
+            return error
+        try:
+            session.page.click(selector)
+        except Exception as exc:
+            return ToolResult(success=False, output="", error=f"submit click failed: {exc}")
+        return ToolResult(
+            success=True, output=f"submitted via {selector}", metadata={"selector": selector, "url": session.page.url}
+        )

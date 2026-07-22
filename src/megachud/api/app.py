@@ -52,7 +52,13 @@ from megachud.routing.engine import ConfiguredModelRouter, ModelProfile
 from megachud.strategy.metrics import StrategyMetricsHandler
 from megachud.browser.cleanup import BrowserSessionCleanupHandler
 from megachud.browser.session import BrowserSessionManager
-from megachud.tools.browser_tools import BrowserNavigateTool, BrowserReadTool
+from megachud.tools.browser_tools import (
+    BrowserClickTool,
+    BrowserFillTool,
+    BrowserNavigateTool,
+    BrowserReadTool,
+    BrowserSubmitTool,
+)
 from megachud.tools.file_tools import ReadFileTool, WriteFileTool
 from megachud.tools.internet_tools import DownloadFileTool, HttpFetchTool
 from megachud.tools.registry import ToolRegistry
@@ -135,6 +141,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
     registry.register(BrowserReadTool(browser_manager))
+    registry.register(BrowserFillTool(browser_manager))
+    registry.register(
+        BrowserClickTool(
+            browser_manager,
+            state_changing_button_text=settings.internet.browser.state_changing_button_text,
+        )
+    )
+    registry.register(BrowserSubmitTool(browser_manager))
 
     model_profiles = [
         ModelProfile(
