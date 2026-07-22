@@ -251,6 +251,32 @@ el("chat-form").addEventListener("submit", async (e) => {
   }
 });
 
+el("draft-prompt-btn").addEventListener("click", async () => {
+  const status = el("chat-status");
+  const input = el("chat-input");
+  const btn = el("draft-prompt-btn");
+  const raw = input.value.trim();
+  if (!raw) return;
+
+  status.textContent = "";
+  btn.disabled = true;
+  try {
+    const result = await fetchJson("/prompts/draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ raw_text: raw }),
+    });
+    input.value = result.prompt;
+    status.textContent = "Draft ready — review it, then pick a mode and Send.";
+    status.style.color = "var(--success)";
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+    status.style.color = "var(--danger)";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 async function refreshApprovals() {
   const approvals = await fetchJson("/approvals?status=pending");
   const container = el("approvals-list");

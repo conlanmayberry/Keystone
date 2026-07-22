@@ -90,10 +90,12 @@ llm:
   default_planner_model: "claude-sonnet-5"
   default_curiosity_model: "claude-haiku-4-5-20251001"
   default_conversation_model: "claude-sonnet-5"
+  default_prompt_drafter_model: "claude-haiku-4-5-20251001"
   reflection_max_tokens: 4096
   planner_max_tokens: 4096
   curiosity_max_tokens: 1024
   conversation_max_tokens: 4096
+  prompt_drafter_max_tokens: 512
   timeout_seconds: 60.0
 
 # http_fetch/download_file/web_search safety knobs. Empty allow/deny lists

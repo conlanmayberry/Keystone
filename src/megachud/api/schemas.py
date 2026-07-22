@@ -340,3 +340,12 @@ class ConversationMessageCreateResponse(BaseModel):
 class PlanDecisionResponse(BaseModel):
     message: ConversationMessageSummary
     task_id: str | None = None
+
+
+class PromptDraftRequest(BaseModel):
+    raw_text: str
+
+
+class PromptDraftResponse(BaseModel):
+    prompt: str
+    model: str

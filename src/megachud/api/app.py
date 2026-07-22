@@ -7,7 +7,7 @@ from functools import partial
 from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -23,6 +23,7 @@ from megachud.api import (
     routes_meta,
     routes_plugins,
     routes_promotion,
+    routes_prompts,
     routes_review,
     routes_routing,
     routes_strategy,
@@ -31,6 +32,7 @@ from megachud.api import (
 )
 from megachud.config import Settings
 from megachud.conversation.engine import ConversationEngine
+from megachud.conversation.prompt_drafter import PromptDrafter
 from megachud.curiosity.engine import CuriosityHandler
 from megachud.curiosity.llm_generator import LLMCuriosityTextGenerator
 from megachud.db import (
@@ -230,6 +232,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         else None
     )
 
+    prompt_drafter = (
+        PromptDrafter(
+            llm_client,
+            model=settings.llm.default_prompt_drafter_model,
+            max_tokens=settings.llm.prompt_drafter_max_tokens,
+        )
+        if llm_client is not None
+        else None
+    )
+
     curiosity_text_generator = (
         LLMCuriosityTextGenerator(
             llm_client, model=settings.llm.default_curiosity_model, max_tokens=settings.llm.curiosity_max_tokens
@@ -320,10 +332,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.llm_client = llm_client
     app.state.llm_task_planner = llm_task_planner
     app.state.conversation_engine = conversation_engine
+    app.state.prompt_drafter = prompt_drafter
     app.state.executor = ThreadPoolExecutor(max_workers=4)
 
     app.include_router(routes_tasks.router)
     app.include_router(routes_conversations.router)
+    app.include_router(routes_prompts.router)
     app.include_router(routes_approvals.router)
     app.include_router(routes_memory.router)
     app.include_router(routes_strategy.router)
@@ -338,6 +352,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(routes_meta.router)
     app.include_router(routes_plugins.router)
     app.include_router(ws.router)
+
+    # No caching for the dashboard's own JS/CSS/HTML: without this, a
+    # browser can silently keep running a stale cached app.js after a code
+    # change + server restart, with no visible error — exactly the
+    # confusing "nothing happens when I click" symptom that motivated this.
+    # These files are tiny and served locally, so there's no real
+    # performance cost to always revalidating.
+    @app.middleware("http")
+    async def no_cache_static(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/")

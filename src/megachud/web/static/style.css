@@ -183,8 +183,8 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
 }
 
 #chat-form { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 8px; }
-#chat-form button { width: auto; padding: 7px 18px; margin-top: 8px; float: right; }
-#chat-form::after { content: ""; display: block; clear: both; }
+.chat-form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.chat-form-actions button { width: auto; padding: 7px 18px; }
 
 /* --- Forms + controls --- */
 

@@ -452,6 +452,22 @@ See `scripts/run_chat_demo.py` for a real end-to-end proof of all three
 modes. Every test uses `tests/fixtures/fake_llm_client.py`'s
 `FakeLLMClient` — no real network call happens anywhere in `pytest`.
 
+**Draft Prompt**: a "Draft Prompt" button next to Send, backed by
+`PromptDrafter` (`conversation/prompt_drafter.py`) and
+`POST /prompts/draft`. Type rough, informal notes into the chat box,
+click it, and the drafted text *replaces* the box for you to review or
+edit — it is **not** a 4th execution mode: it never sends a message or
+launches anything, it's a purely optional rewrite step before you pick
+Auto/Semi-Manual/Full-Manual and hit Send yourself. It's also the first
+plain-text (non-forced-tool-use) LLM call in this codebase — the desired
+output is one string, not multiple structured fields, so the forced
+tool-use `AnthropicLLMClient` uses everywhere else would be needless
+structure here. Uses the cheaper `claude-haiku-4-5-20251001` tier (same
+policy as reflection/curiosity — this is a lightweight rewrite, not deep
+reasoning) and logs its cost the same way every other LLM consumer does.
+Same `ANTHROPIC_API_KEY` setup as the rest of this section; returns a
+clean `503` if unconfigured, `502` on a real API request failure.
+
 ## Tests
 
 ```

@@ -43,7 +43,10 @@
               </div>
               <p class="hint" id="execution-mode-hint">Auto: the agent plans and runs automatically (still pausing for any high-risk step).</p>
               <textarea id="chat-input" rows="2" placeholder="Tell the agent what to do..."></textarea>
-              <button type="submit">Send</button>
+              <div class="chat-form-actions">
+                <button type="button" id="draft-prompt-btn" class="secondary">Draft Prompt</button>
+                <button type="submit">Send</button>
+              </div>
             </form>
             <p id="chat-status"></p>
           </div>
