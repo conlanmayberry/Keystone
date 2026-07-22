@@ -12,6 +12,7 @@ from megachud.events.logger import EventLogger
 from megachud.models.approval import RiskLevel
 from megachud.models.task import Task, TaskStatus
 from megachud.orchestrator.approval_gate import ApprovalGate
+from megachud.orchestrator.context import current_task_id
 from megachud.orchestrator.retries import RetryPolicy
 from megachud.orchestrator.task_models import ToolCall
 from megachud.tools.base import ToolResult
@@ -45,6 +46,17 @@ class Orchestrator:
         self._retry_policy = retry_policy or RetryPolicy()
 
     def run_task(self, task_id: str) -> Task:
+        # Publish the current task id for session-based tools (browser
+        # tools) that need to associate a persistent resource with this
+        # task across several tool calls. The tool interface (run(args))
+        # is unchanged — this is ambient context, reset even on error.
+        token = current_task_id.set(task_id)
+        try:
+            return self._run_task(task_id)
+        finally:
+            current_task_id.reset(token)
+
+    def _run_task(self, task_id: str) -> Task:
         plan = self._start_task(task_id)
         self._event_logger.log(event_type="task_started", task_id=task_id, payload={"plan_length": len(plan)})
 

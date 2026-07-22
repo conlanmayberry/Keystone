@@ -20,6 +20,9 @@ def test_default_load_reads_repo_default_yaml():
     assert settings.project_name == "default"
     assert settings.llm.default_reflection_model == "claude-haiku-4-5-20251001"
     assert settings.llm.default_planner_model == "claude-sonnet-5"
+    assert settings.internet.browser.headless is True
+    assert settings.internet.browser.max_sessions == 4
+    assert "buy" in settings.internet.browser.state_changing_button_text
     profile_names = {p.name for p in settings.model_routing.profiles}
     assert profile_names == {"claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-4-8"}
 

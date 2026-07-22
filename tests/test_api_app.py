@@ -40,3 +40,10 @@ def test_web_search_registered_with_brave_key(test_settings):
     app = create_app(settings)
     tool = app.state.tool_registry.get("web_search")
     assert tool.name == "web_search"
+
+
+def test_browser_read_only_tools_always_registered(test_settings):
+    app = create_app(test_settings)
+    assert app.state.tool_registry.get("browser_navigate").name == "browser_navigate"
+    assert app.state.tool_registry.get("browser_read").name == "browser_read"
+    assert app.state.browser_manager is not None

@@ -115,3 +115,10 @@ internet:
   search:
     max_results: 10
     timeout_seconds: 10.0
+  browser:
+    headless: true
+    nav_timeout_ms: 15000
+    max_sessions: 4
+    viewport_width: 1280
+    viewport_height: 800
+    state_changing_button_text: ["buy", "purchase", "order", "pay", "checkout", "submit", "confirm", "delete", "remove", "send", "post", "subscribe"]

@@ -50,6 +50,9 @@ from megachud.reflection.handler import TaskCompletionHandler
 from megachud.reflection.llm_generator import LLMReflectionGenerator
 from megachud.routing.engine import ConfiguredModelRouter, ModelProfile
 from megachud.strategy.metrics import StrategyMetricsHandler
+from megachud.browser.cleanup import BrowserSessionCleanupHandler
+from megachud.browser.session import BrowserSessionManager
+from megachud.tools.browser_tools import BrowserNavigateTool, BrowserReadTool
 from megachud.tools.file_tools import ReadFileTool, WriteFileTool
 from megachud.tools.internet_tools import DownloadFileTool, HttpFetchTool
 from megachud.tools.registry import ToolRegistry
@@ -112,6 +115,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 timeout_seconds=settings.internet.search.timeout_seconds,
             )
         )
+
+    # Browser automation (Stage B). The manager lazily launches Playwright
+    # on first use — registration is unconditional and never launches a
+    # browser, so create_app() stays side-effect-free and doesn't require
+    # playwright/chromium to be installed (the tools fail gracefully if
+    # they aren't). Read-only tools here; interaction tools in Step 2.
+    browser_manager = BrowserSessionManager(
+        headless=settings.internet.browser.headless,
+        nav_timeout_ms=settings.internet.browser.nav_timeout_ms,
+        max_sessions=settings.internet.browser.max_sessions,
+        viewport=(settings.internet.browser.viewport_width, settings.internet.browser.viewport_height),
+    )
+    registry.register(
+        BrowserNavigateTool(
+            browser_manager,
+            domain_allowlist=settings.internet.domain_allowlist,
+            domain_denylist=settings.internet.domain_denylist,
+        )
+    )
+    registry.register(BrowserReadTool(browser_manager))
 
     model_profiles = [
         ModelProfile(
@@ -201,8 +224,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     # Order matters: completion_handler must run first — curiosity_handler
-    # reads the Reflection row it creates.
-    dispatcher = EventDispatcher([completion_handler, strategy_metrics_handler, curiosity_handler])
+    # reads the Reflection row it creates. The browser cleanup handler runs
+    # LAST, so nothing that still reads task state runs after teardown.
+    dispatcher = EventDispatcher(
+        [
+            completion_handler,
+            strategy_metrics_handler,
+            curiosity_handler,
+            BrowserSessionCleanupHandler(browser_manager),
+        ]
+    )
     event_logger = EventLogger(session_factory, bus, on_event=dispatcher)
 
     approval_gate = ApprovalGate(
@@ -234,6 +265,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         bus.bind_loop(asyncio.get_running_loop())
         yield
         app.state.executor.shutdown(wait=False)
+        browser_manager.close_all()
 
     app = FastAPI(title="MegaChud", lifespan=lifespan)
     app.state.settings = settings
@@ -243,6 +275,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.approval_gate = approval_gate
     app.state.orchestrator = orchestrator
     app.state.tool_registry = registry
+    app.state.browser_manager = browser_manager
     app.state.memory_store = memory_store
     app.state.vault_writer = vault_writer
     app.state.model_router = model_router

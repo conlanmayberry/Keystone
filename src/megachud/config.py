@@ -103,6 +103,21 @@ class SearchConfig(BaseModel):
     timeout_seconds: float = 10.0
 
 
+class BrowserConfig(BaseModel):
+    headless: bool = True
+    nav_timeout_ms: int = 15_000
+    max_sessions: int = 4
+    viewport_width: int = 1280
+    viewport_height: int = 800
+    # Button/link text (case-insensitive substring) that marks a click as
+    # state-changing, routing it to the approval gate rather than
+    # auto-clicking. Best-effort — see browser_click's honest caveat.
+    state_changing_button_text: list[str] = [
+        "buy", "purchase", "order", "pay", "checkout", "submit",
+        "confirm", "delete", "remove", "send", "post", "subscribe",
+    ]
+
+
 class InternetConfig(BaseModel):
     # Empty = unrestricted — fetching any public URL is allowed by default.
     domain_allowlist: list[str] = []
@@ -110,6 +125,7 @@ class InternetConfig(BaseModel):
     fetch: FetchConfig = FetchConfig()
     download: DownloadConfig = DownloadConfig()
     search: SearchConfig = SearchConfig()
+    browser: BrowserConfig = BrowserConfig()
 
 
 class LLMConfig(BaseModel):
