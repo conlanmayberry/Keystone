@@ -51,6 +51,7 @@ header h1 { margin: 0; font-size: 17px; letter-spacing: 0.02em; }
   cursor: pointer;
 }
 
+.tab-btn { transition: color 0.12s ease, border-color 0.12s ease; }
 .tab-btn:hover { color: var(--text); }
 .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
 
@@ -74,6 +75,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .panel h2 {
@@ -94,6 +96,95 @@ main { max-width: 1200px; margin: 0 auto; padding: 20px 24px; }
 }
 
 .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+
+/* --- Chat --- */
+
+.chat-layout { display: flex; gap: 16px; align-items: stretch; }
+
+#conversation-list-pane {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  padding-right: 16px;
+}
+.chat-pane-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.chat-pane-header h2 { margin: 0; }
+#new-conversation-btn { width: auto; padding: 4px 10px; margin-top: 0; font-size: 12px; }
+
+#conversation-list { max-height: 520px; overflow-y: auto; }
+.conversation-item {
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.conversation-item:hover { background: var(--panel-inset); }
+.conversation-item.active { background: var(--panel-inset); border-color: var(--accent); }
+.conversation-preview {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+#chat-messages {
+  flex: 1;
+  min-height: 320px;
+  max-height: 520px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 4px 12px;
+}
+
+.chat-message {
+  max-width: 82%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.chat-message.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: #fff;
+}
+.chat-message.user .memory-meta { color: rgba(255, 255, 255, 0.75); }
+.chat-message.assistant {
+  align-self: flex-start;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+}
+
+.chat-plan {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.15);
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+.chat-message .actions { display: flex; gap: 6px; width: auto; margin-top: 8px; }
+.chat-message .actions button { width: auto; padding: 4px 10px; font-size: 12px; }
+.chat-message .view-task {
+  width: auto;
+  margin-top: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-weight: 500;
+}
+
+#chat-form { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 8px; }
+#chat-form button { width: auto; padding: 7px 18px; margin-top: 8px; float: right; }
+#chat-form::after { content: ""; display: block; clear: both; }
 
 /* --- Forms + controls --- */
 
@@ -121,9 +212,29 @@ input, textarea, select, button {
   font-family: inherit;
   font-size: 13px;
   margin-top: 4px;
+  transition: border-color 0.12s ease;
 }
 
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+
+.segmented-control {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  width: fit-content;
+  margin-bottom: 8px;
+}
+.segmented-control input { display: none; }
+.segmented-control label {
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.segmented-control label:not(:last-child) { border-right: 1px solid var(--border); }
+.segmented-control input:checked + label { background: var(--accent); color: #fff; }
 textarea { font-family: ui-monospace, monospace; resize: vertical; }
 textarea:disabled, input:disabled { opacity: 0.45; }
 
@@ -133,8 +244,10 @@ button {
   border: none;
   color: #fff;
   font-weight: 600;
+  transition: filter 0.12s ease, transform 0.05s ease;
 }
-button:hover { filter: brightness(1.1); }
+button:hover { filter: brightness(1.12); }
+button:active { transform: translateY(1px); }
 button.secondary { background: var(--panel-inset); border: 1px solid var(--border); color: var(--text); font-weight: 500; }
 button.deny { background: var(--danger); }
 button.approve { background: var(--success); }

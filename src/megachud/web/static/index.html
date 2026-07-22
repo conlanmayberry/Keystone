@@ -9,7 +9,8 @@
   <header>
     <h1>MegaChud</h1>
     <nav id="tab-bar">
-      <button class="tab-btn active" data-tab="tab-run" type="button">Run</button>
+      <button class="tab-btn active" data-tab="tab-chat" type="button">Chat</button>
+      <button class="tab-btn" data-tab="tab-run" type="button">Run</button>
       <button class="tab-btn" data-tab="tab-tasks" type="button">Tasks</button>
       <button class="tab-btn" data-tab="tab-memory" type="button">Memory</button>
       <button class="tab-btn" data-tab="tab-improve" type="button">Improve</button>
@@ -19,7 +20,38 @@
   </header>
 
   <main>
-    <div class="tab-page active" id="tab-run">
+    <div class="tab-page active" id="tab-chat">
+      <section class="panel wide" id="chat-panel">
+        <div class="chat-layout">
+          <aside id="conversation-list-pane">
+            <div class="chat-pane-header">
+              <h2>Conversations</h2>
+              <button id="new-conversation-btn" type="button" class="secondary">New</button>
+            </div>
+            <div id="conversation-list">No conversations yet.</div>
+          </aside>
+          <div class="chat-main">
+            <div id="chat-messages" class="hint">Start a new conversation, or select one on the left.</div>
+            <form id="chat-form">
+              <div class="segmented-control" id="execution-mode-control">
+                <input type="radio" name="exec-mode" id="mode-auto" value="auto" checked />
+                <label for="mode-auto">Auto</label>
+                <input type="radio" name="exec-mode" id="mode-semi" value="semi_manual" />
+                <label for="mode-semi">Semi-Manual</label>
+                <input type="radio" name="exec-mode" id="mode-full" value="full_manual" />
+                <label for="mode-full">Full-Manual</label>
+              </div>
+              <p class="hint" id="execution-mode-hint">Auto: the agent plans and runs automatically (still pausing for any high-risk step).</p>
+              <textarea id="chat-input" rows="2" placeholder="Tell the agent what to do..."></textarea>
+              <button type="submit">Send</button>
+            </form>
+            <p id="chat-status"></p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="tab-page" id="tab-run">
       <section class="panel" id="new-task-panel">
         <h2>New Task</h2>
         <form id="new-task-form">
@@ -27,6 +59,9 @@
           <label>Prompt <textarea id="task-prompt" rows="2" required></textarea></label>
           <label class="inline-checkbox">
             <input type="checkbox" id="task-auto-plan" /> Auto-plan (LLM) — let the configured LLM produce the tool-call plan from the prompt above
+          </label>
+          <label class="inline-checkbox">
+            <input type="checkbox" id="task-full-manual" /> Full-manual — pause for approval before every step, not just high-risk ones
           </label>
           <label>
             Tool calls (JSON array of {"tool_name","args"})

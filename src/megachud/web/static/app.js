@@ -1,4 +1,5 @@
 let selectedTaskId = null;
+let selectedConversationId = null;
 
 function el(id) {
   return document.getElementById(id);
@@ -55,6 +56,7 @@ function connectLiveFeed() {
       refreshTasks();
       refreshApprovals();
       refreshStrategies();
+      refreshChatMessages();
     }
     if (["promotion_requested", "promotion_resolved"].includes(event.event_type)) {
       refreshExperiments();
@@ -100,6 +102,154 @@ async function selectTask(taskId) {
     </dl>
   `;
 }
+
+// --- Chat ---
+
+function executionModeHint(mode) {
+  if (mode === "semi_manual") return "Semi-Manual: review and approve the whole plan once, then it runs to completion.";
+  if (mode === "full_manual") return "Full-Manual: pause for your approval before every single step, not just high-risk ones.";
+  return "Auto: the agent plans and runs automatically (still pausing for any high-risk step).";
+}
+
+function selectedExecutionMode() {
+  return document.querySelector('#execution-mode-control input[name="exec-mode"]:checked').value;
+}
+
+for (const input of document.querySelectorAll('#execution-mode-control input[type="radio"]')) {
+  input.addEventListener("change", () => {
+    el("execution-mode-hint").textContent = executionModeHint(input.value);
+  });
+}
+
+async function refreshConversationList() {
+  const conversations = await fetchJson("/conversations");
+  const container = el("conversation-list");
+  if (conversations.length === 0) {
+    container.innerHTML = "No conversations yet.";
+    return;
+  }
+  container.innerHTML = "";
+  for (const c of conversations) {
+    const div = document.createElement("div");
+    div.className = "conversation-item" + (c.id === selectedConversationId ? " active" : "");
+    div.innerHTML = `
+      <div class="conversation-preview">${c.last_message_preview ?? "(empty)"}</div>
+      <div class="memory-meta">${c.message_count} message(s) · ${new Date(c.created_at).toLocaleString()}</div>
+    `;
+    div.addEventListener("click", () => selectConversation(c.id));
+    container.appendChild(div);
+  }
+}
+
+async function selectConversation(conversationId) {
+  selectedConversationId = conversationId;
+  await refreshConversationList();
+  await refreshChatMessages();
+}
+
+async function refreshChatMessages() {
+  if (!selectedConversationId) return;
+  const messages = await fetchJson(`/conversations/${selectedConversationId}/messages`);
+  renderChatMessages(messages);
+}
+
+function renderChatMessages(messages) {
+  const container = el("chat-messages");
+  if (messages.length === 0) {
+    container.innerHTML = "No messages yet — say something below.";
+    return;
+  }
+  container.innerHTML = "";
+  for (const m of messages) {
+    const div = document.createElement("div");
+    div.className = `chat-message ${m.role}`;
+
+    let planBlock = "";
+    if (m.proposed_plan) {
+      const steps = m.proposed_plan.map((s) => `${s.tool_name}(${JSON.stringify(s.args)})`).join("<br/>");
+      planBlock = `<div class="chat-plan">${steps}</div>`;
+      if (m.plan_status === "pending") {
+        planBlock += `
+          <span class="actions">
+            <button class="approve" type="button">Approve plan</button>
+            <button class="deny" type="button">Reject plan</button>
+          </span>
+        `;
+      }
+    }
+    const viewTaskBtn = m.linked_task_id ? `<button class="view-task" type="button">View task</button>` : "";
+    const metaBits = [new Date(m.created_at).toLocaleTimeString()];
+    if (m.execution_mode) metaBits.push(m.execution_mode);
+    if (m.plan_status) metaBits.push(m.plan_status);
+
+    div.innerHTML = `
+      <div>${m.content}</div>
+      ${planBlock}
+      ${viewTaskBtn}
+      <div class="memory-meta">${metaBits.join(" · ")}</div>
+    `;
+
+    const approveBtn = div.querySelector(".approve");
+    if (approveBtn) approveBtn.addEventListener("click", () => decidePlan(m.id, true));
+    const denyBtn = div.querySelector(".deny");
+    if (denyBtn) denyBtn.addEventListener("click", () => decidePlan(m.id, false));
+    const taskBtn = div.querySelector(".view-task");
+    if (taskBtn) taskBtn.addEventListener("click", () => selectTask(m.linked_task_id));
+
+    container.appendChild(div);
+  }
+  container.scrollTop = container.scrollHeight;
+}
+
+async function decidePlan(messageId, approved) {
+  const status = el("chat-status");
+  try {
+    const path = approved ? "approve_plan" : "reject_plan";
+    await fetchJson(`/conversations/${selectedConversationId}/messages/${messageId}/${path}`, { method: "POST" });
+    status.textContent = "";
+    refreshChatMessages();
+    refreshTasks();
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+    status.style.color = "var(--danger)";
+  }
+}
+
+el("new-conversation-btn").addEventListener("click", async () => {
+  const conversation = await fetchJson("/conversations", { method: "POST" });
+  await selectConversation(conversation.id);
+});
+
+el("chat-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = el("chat-status");
+  const input = el("chat-input");
+  const content = input.value.trim();
+  if (!content) return;
+
+  status.textContent = "";
+  input.disabled = true;
+  try {
+    if (!selectedConversationId) {
+      const conversation = await fetchJson("/conversations", { method: "POST" });
+      selectedConversationId = conversation.id;
+    }
+    await fetchJson(`/conversations/${selectedConversationId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, execution_mode: selectedExecutionMode() }),
+    });
+    input.value = "";
+    await refreshConversationList();
+    await refreshChatMessages();
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+    status.style.color = "var(--danger)";
+  } finally {
+    input.disabled = false;
+    input.focus();
+  }
+});
 
 async function refreshApprovals() {
   const approvals = await fetchJson("/approvals?status=pending");
@@ -631,12 +781,14 @@ el("new-task-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const status = el("new-task-status");
   const autoPlan = el("task-auto-plan").checked;
+  const fullManual = el("task-full-manual").checked;
   try {
     const body = {
       title: el("task-title").value,
       prompt: el("task-prompt").value,
       auto_plan: autoPlan,
       tool_calls: autoPlan ? [] : JSON.parse(el("task-tool-calls").value || "[]"),
+      execution_mode: fullManual ? "full_manual" : "auto",
     };
     const result = await fetchJson("/tasks", {
       method: "POST",
@@ -701,6 +853,7 @@ el("tasks-agent-filter").addEventListener("change", refreshTasks);
 el("analytics-agent-filter").addEventListener("change", refreshAnalytics);
 
 connectLiveFeed();
+refreshConversationList();
 refreshTasks();
 refreshApprovals();
 refreshMemory();
