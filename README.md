@@ -8,11 +8,12 @@ infrastructure, analytics, hourly/weekly reviews), and **Phase 5**
 (platform: dynamic plugin loading, structural multi-agent/multi-project
 readiness, advanced dashboards), plus a first real **LLM integration**
 (Anthropic Claude), **internet access** (HTTP fetch, file download, web
-search), and **browser automation** (Playwright — research, monitoring,
-testing, approval-gated form interaction) layered on top once all 5
-phases were done — see "LLM Integration", "Internet Access", and "Browser
-Automation (Stage B)" below. See the planning docs for the
-full picture:
+search), **browser automation** (Playwright — research, monitoring,
+testing, approval-gated form interaction), and a **chat interface** with
+Auto/Semi-Manual/Full-Manual execution modes layered on top once all 5
+phases were done — see "LLM Integration", "Internet Access", "Browser
+Automation (Stage B)", and "Chat Interface" below. See the planning docs
+for the full picture:
 
 - [Master_Specification.md](Master_Specification.md) — vision, design
   principles, and the full set of components the platform grows into.
@@ -31,21 +32,23 @@ that later phases could add real internet-access and money-related tools
 — an explicit acceptance criterion for the finished product — without
 reworking the orchestrator. Real internet access has since landed (see
 "Internet Access" below): `http_fetch`, `download_file`, and `web_search`
-are `LOW`/`MEDIUM` risk and run automatically, same as `read_file`.
-Nothing that submits a form, completes a purchase, or otherwise changes
-remote state exists yet — that capability, if it's ever added, is exactly
-what the `HIGH_IRREVERSIBLE` → approval-gate mechanism is for, and it
-still requires no orchestrator changes to add. Curiosity still searches
-only existing local memory, not the new internet tools, and the Model
-Selection Engine (`routing/`) is still a config-driven decision framework
-with no LLM call inside it anywhere — picking a model is still pure
-arithmetic, never itself an LLM call. Three other components (reflection
-generation, task planning, curiosity question/objective text) have real
-Anthropic Claude-backed implementations, gated entirely behind whether
-`ANTHROPIC_API_KEY` is configured — see "LLM Integration" below. Phase 5's
-plugin system was the first exception to the local-only boundary: dynamic
-runtime loading of external Python code is real, deliberately scoped to
-local-only, explicit-opt-in sources (see "Plugins" below).
+are `LOW`/`MEDIUM` risk and run automatically, same as `read_file`. Real
+browser automation has too (see "Browser Automation (Stage B)"): the one
+tool that can actually change remote state, `browser_submit`, is
+`HIGH_IRREVERSIBLE` and always pauses for human approval — the exact same
+gate every risky tool has used since Phase 1, with zero orchestrator
+changes needed to add it. Curiosity still searches only existing local
+memory, not the new internet/browser tools, and the Model Selection
+Engine (`routing/`) is still a config-driven decision framework with no
+LLM call inside it anywhere — picking a model is still pure arithmetic,
+never itself an LLM call. Four other components (reflection generation,
+task planning, curiosity question/objective text, and the chat interface
+that proposes plans) have real Anthropic Claude-backed implementations,
+gated entirely behind whether `ANTHROPIC_API_KEY` is configured — see
+"LLM Integration" and "Chat Interface" below. Phase 5's plugin system was
+the first exception to the local-only boundary: dynamic runtime loading
+of external Python code is real, deliberately scoped to local-only,
+explicit-opt-in sources (see "Plugins" below).
 
 ## Setup
 
@@ -176,6 +179,21 @@ Chromium, prints the `tool_result` events, and confirms the browser
 session is torn down after the task. Requires `pip install .[browser]` +
 `playwright install chromium`; fails gracefully with a clear message if
 the browser binary is missing. See "Browser Automation (Stage B)" below.
+
+```
+.venv/Scripts/python scripts/run_chat_demo.py
+```
+
+Drives the real `/conversations` HTTP API (via FastAPI's `TestClient` —
+no server needs to be running; this exercises the exact route code the
+dashboard's Chat tab calls) through all three execution modes against a
+real Anthropic API call: Auto (plan launches immediately), Semi-Manual
+(plan sits pending until `approve_plan` is called once), and Full-Manual
+(every individual tool call pauses for approval — this script approves
+each one as it appears, same as clicking "Approve" in the dashboard
+would). With no `ANTHROPIC_API_KEY` configured, prints a clean message
+and stops after showing that conversations can still be created. See
+"Chat Interface" below for setup.
 
 ## Plugins
 
@@ -385,6 +403,54 @@ See `scripts/run_browser_demo.py` for a real navigate+read against a live
 page. The unit suite uses a fake page double (no real Chromium);
 `tests/test_browser_e2e.py` is an opt-in real-browser test, skipped unless
 `MEGACHUD_BROWSER_E2E=1` is set.
+
+## Chat Interface
+
+A real multi-turn conversation with the agent — the dashboard's Chat tab,
+backed by `ConversationEngine` (`conversation/engine.py`) and
+`POST /conversations/{id}/messages`. **The property every prior
+capability in this project depends on is unchanged: plan *execution*
+stays strictly one-shot.** The LLM proposes one complete plan per turn
+and never sees tool results, so it cannot revise a plan mid-execution
+based on what happened — multi-turn lives entirely in "how we arrive at
+a plan," never in "how the plan runs." Once a plan is approved (or
+auto-approved), it runs through the same unmodified `Orchestrator.run_task`
+every other task does.
+
+Each turn, the LLM picks one of two actions via forced tool-use: ask a
+clarifying question, or propose a finished plan. `history` passed to the
+LLM is plain conversation text only — prior message content, never a
+tool result or a previously-proposed plan's raw JSON — which is what
+structurally prevents it from ever "seeing what happened."
+
+**Three execution modes**, selected per-message from the dashboard's
+segmented control (or `execution_mode` on `POST /tasks`):
+- **Auto**: the proposed plan launches immediately. `HIGH_IRREVERSIBLE`
+  steps (like `browser_submit`) still pause for approval — this mode
+  doesn't bypass that gate, it just skips the *extra* whole-plan review.
+- **Semi-Manual**: the plan sits `pending` in the chat until you click
+  Approve or Reject once; approving launches it to completion exactly
+  like Auto from that point on.
+- **Full-Manual**: every individual tool call pauses for approval,
+  regardless of `risk_level` — reusing the exact same `ApprovalGate` every
+  `HIGH_IRREVERSIBLE` tool already uses, just applied to every step. No
+  new approval machinery; `Task.execution_mode == "full_manual"` is
+  checked once, before the existing `risk_level == HIGH_IRREVERSIBLE`
+  check, in `Orchestrator.run_task`.
+
+**Setup**: same `ANTHROPIC_API_KEY` as "LLM Integration" above — nothing
+additional. With no key configured, conversations can still be created
+(that doesn't need an LLM), but sending a message returns a clean `503`,
+demonstrated by `scripts/run_chat_demo.py`.
+
+Anthropic's Messages API requires strict `user`/`assistant` alternation
+starting with `user`. `send_message` always writes exactly one `user` row
+then exactly one `assistant` row — even when the LLM call itself fails —
+so a dangling unanswered turn never breaks the next request.
+
+See `scripts/run_chat_demo.py` for a real end-to-end proof of all three
+modes. Every test uses `tests/fixtures/fake_llm_client.py`'s
+`FakeLLMClient` — no real network call happens anywhere in `pytest`.
 
 ## Tests
 
@@ -597,14 +663,46 @@ page. The unit suite uses a fake page double (no real Chromium);
   guarantee — the `HIGH_IRREVERSIBLE` approval gate is the real
   protection, reused verbatim from Phase 1 with zero new approval code.
 
+### Chat Interface
+- **`Conversation`/`ConversationMessage`** (`models/conversation.py`):
+  brand-new tables, no migration needed. `execution_mode` also lives on
+  `ConversationMessage` (not just the eventual `Task`), since for
+  Semi-Manual, `approve_plan` happens in a later, separate request — the
+  route needs to remember which mode governed that turn.
+- **`orchestrator/plan_validation.py`**: the tool-name/args validation
+  loop extracted out of `LLMTaskPlanner.plan()` so `ConversationEngine`
+  calls the exact same validation, not a re-implementation — a
+  hallucinated tool name or invalid args is rejected identically whether
+  it came from `POST /tasks {"auto_plan": true}` or a chat message.
+- **`Task.execution_mode`** (nullable, additive migration in `db.py`
+  mirroring `ensure_agent_project_columns`'s shape): `NULL` and `"auto"`
+  are treated identically at read time, so every pre-existing row stays
+  correct with no backfill.
+- **`ConversationEngine.respond()`**: one forced-tool-use call per
+  invocation — multi-turn is entirely a property of the caller (the API
+  route) invoking this repeatedly, once per human message. The class
+  itself has no notion of a running task and never sees tool results.
+- **`routes_conversations.py`**: `send_message` always persists exactly
+  one user row and exactly one assistant row before returning, even on
+  an LLM failure — required for the next turn's history to satisfy
+  Anthropic's strict alternation rule. Task launches go through
+  `app.state.executor.submit(...)`, the same background-thread pattern
+  `POST /tasks` already used, so a chat message never blocks on task
+  execution.
+
 ### Dashboard
-- **`api/`, `web/static/`**: FastAPI + plain HTML/JS, no build step.
-  Panels: New Task, Working Summary, Pending Approvals, Live Activity,
-  Task History (with an agent filter), Memory Browser, Strategy/Workflow
-  Browser, Experiment Browser (with inline Promotion approvals),
-  Curiosity, Bottleneck Findings, Analytics (with an agent filter),
-  Reviews, Model Routing, Plugins. A project/agent identity label sits in
-  the header.
+- **`api/`, `web/static/`**: FastAPI + plain HTML/JS, no build step,
+  reorganized into tabs (Chat, Run, Tasks, Memory, Improve, Insights) as
+  the panel count grew past what a single scrolling page could hold
+  comfortably. Chat is the landing tab: conversation list, message
+  thread, and the Auto/Semi-Manual/Full-Manual selector. Run holds New
+  Task (with both the `auto_plan` and `execution_mode` controls),
+  Working Summary, Pending Approvals, and Live Activity — the
+  moment-to-moment "what's happening right now" view. Tasks, Memory,
+  Improve (Strategies/Bottlenecks/Experiments/Promotions), and Insights
+  (Analytics/Reviews/Model Routing/Plugins) hold everything else. A
+  project/agent identity label sits in the header; the active tab
+  persists in `localStorage`.
 
 Persistence, config, and safety-guardrail details are documented inline
 in `src/megachud/config.py`, `src/megachud/db.py`, and
