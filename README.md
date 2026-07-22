@@ -7,9 +7,11 @@ curiosity, bottleneck detection), **Phase 4** (optimization: model routing
 infrastructure, analytics, hourly/weekly reviews), and **Phase 5**
 (platform: dynamic plugin loading, structural multi-agent/multi-project
 readiness, advanced dashboards), plus a first real **LLM integration**
-(Anthropic Claude) and **internet access** (HTTP fetch, file download,
-web search) layered on top once all 5 phases were done — see "LLM
-Integration" and "Internet Access" below. See the planning docs for the
+(Anthropic Claude), **internet access** (HTTP fetch, file download, web
+search), and **browser automation** (Playwright — research, monitoring,
+testing, approval-gated form interaction) layered on top once all 5
+phases were done — see "LLM Integration", "Internet Access", and "Browser
+Automation (Stage B)" below. See the planning docs for the
 full picture:
 
 - [Master_Specification.md](Master_Specification.md) — vision, design
@@ -164,6 +166,17 @@ message style as the LLM demo), and prints the current
 `workspace/downloads/` disk usage against its quota. Needs real internet
 access to run. See "Internet Access" below for setup.
 
+```
+.venv/Scripts/python scripts/run_browser_demo.py
+```
+
+Runs a real 2-step task (`browser_navigate` then `browser_read` against
+`https://example.com/`) through the real orchestrator in a real headless
+Chromium, prints the `tool_result` events, and confirms the browser
+session is torn down after the task. Requires `pip install .[browser]` +
+`playwright install chromium`; fails gracefully with a clear message if
+the browser binary is missing. See "Browser Automation (Stage B)" below.
+
 ## Plugins
 
 See [plugins/README.md](plugins/README.md) for the full mechanism and
@@ -301,19 +314,77 @@ All of this is configurable under `internet:` in `config/default.yaml`
 (`domain_allowlist`/`domain_denylist` — both empty by default, meaning
 any public domain is reachable; per-tool byte/timeout/redirect caps).
 
-**Still true, unchanged from Phase 1**: nothing that submits a form,
-completes a purchase, or otherwise changes state on a real external site
-exists in this codebase. That capability doesn't exist at all yet — it's
-a deliberately separate, not-yet-built follow-up (real browser automation
-via Playwright, most likely) that would use the exact same
-`RiskLevel.HIGH_IRREVERSIBLE` → `ApprovalGate` mechanism every
-`high_irreversible` tool already goes through, per `Tool`'s own docstring
-("needs no orchestrator changes, only a new Tool subclass and a registry
-entry").
+These Stage A tools do not drive a real browser and cannot submit forms.
+Real browser automation — including the approval-gated form submission
+that *can* change remote state — is **Browser Automation (Stage B)**
+below, and it uses the exact `RiskLevel.HIGH_IRREVERSIBLE` → `ApprovalGate`
+mechanism every `high_irreversible` tool already goes through, per
+`Tool`'s own docstring ("needs no orchestrator changes, only a new Tool
+subclass and a registry entry").
 
 See `scripts/run_internet_demo.py` for an end-to-end proof against the
 real internet. Every test in the suite uses `httpx.MockTransport` plus a
 stubbed DNS resolver — no real network call happens anywhere in `pytest`.
+
+## Browser Automation (Stage B)
+
+Real, JS-capable browser control via Playwright, for research (navigate +
+read rendered pages), monitoring (watch pages for changes), testing
+(drive your own web apps), and **approval-gated** form interaction. Five
+tools in `tools/browser_tools.py`, all sharing one browser session per
+task:
+
+| tool | risk | approval | what it does |
+|------|------|----------|--------------|
+| `browser_navigate` | MEDIUM | auto | open a URL (SSRF-checked, runs page JS) |
+| `browser_read` | LOW | auto | read the page (text / links / accessibility tree) |
+| `browser_fill` | MEDIUM | auto | type into a field (cannot submit on its own) |
+| `browser_click` | MEDIUM | auto\* | click a link / plain button |
+| `browser_submit` | HIGH_IRREVERSIBLE | **human** | submit a form / state-changing control |
+
+**Setup**: `pip install .[browser]` then the one-time
+`playwright install chromium`. With neither present the browser tools
+return a clean failure and `create_app()` still boots — nothing else is
+affected.
+
+**The click safety model, stated honestly (\*)**: `browser_click`
+inspects its target first and **refuses** anything that looks
+state-changing — `type=submit`/`image`, a no-explicit-type `<button>`
+inside a `<form>`, or visible text matching a configurable
+buy/pay/order/delete/send denylist — directing the caller to
+`browser_submit` instead. This inspection reads static DOM attributes and
+visible text only, so a JS `onclick` handler or a control disguised as a
+plain link can still change state without tripping it. **The heuristic is
+a guardrail; the approval gate is the real protection.** Anything that
+genuinely changes remote state should go through `browser_submit`, which
+routes every call through the same human approval gate as any other
+`HIGH_IRREVERSIBLE` tool — approve/deny it from the dashboard, exactly
+like a risky `shell_exec`.
+
+**One deliberate orchestrator change** (the only one in the project): a
+browser session must persist across the `navigate → read → …` steps of a
+plan, but tools receive only `args`, never a `task_id`. `run_task` now
+sets an ambient `contextvars.ContextVar` (`orchestrator/context.py`) that
+session-based tools read; the tool interface `run(args)` is unchanged.
+Sessions are one browser+context per task, created lazily and closed when
+the task ends by a `BrowserSessionCleanupHandler` wired into the existing
+`EventDispatcher` — all within the task's own worker thread, which is what
+makes Playwright's thread-affine sync API safe here. **Honest
+limitation**: a hard crash mid-task (a tool violating the never-raise
+contract — a bug) could leak one browser subprocess until process exit;
+mitigated by the never-raise convention, unique task ids, and
+`close_all()` on shutdown.
+
+**Explicitly not built, and not planned**: no account creation, no
+CAPTCHA/bot-detection solving, and no tooling for covert paid "human"
+microwork — that last one is undisclosed AI labor sold to buyers paying
+for a human (a ToS violation and a deception), independent of the two
+hard-prohibited actions it would also require.
+
+See `scripts/run_browser_demo.py` for a real navigate+read against a live
+page. The unit suite uses a fake page double (no real Chromium);
+`tests/test_browser_e2e.py` is an opt-in real-browser test, skipped unless
+`MEGACHUD_BROWSER_E2E=1` is set.
 
 ## Tests
 
@@ -498,6 +569,33 @@ stubbed DNS resolver — no real network call happens anywhere in `pytest`.
   — only registered when `settings.brave_api_key` is set, so a fresh
   clone with no search key still boots identically (verified by test,
   mirroring `test_create_app_does_not_raise_with_no_api_key`).
+
+### Browser Automation (Stage B)
+- **Session keying** (`orchestrator/context.py`): the project's one
+  deliberate orchestrator change — a `contextvars.ContextVar` set at the
+  top of `run_task` and reset in a `finally`. It exists solely so
+  session-based tools can associate a persistent browser with the running
+  task without changing the stateless `run(args)` tool interface. Every
+  other tool ignores it.
+- **`BrowserSessionManager`** (`browser/session.py`): one browser +
+  context + page per `task_id`, lazily launched (playwright imported
+  locally, mirroring `AnthropicLLMClient`'s `import anthropic`, so the
+  base install and `create_app` are unaffected without it). A
+  `page_factory` seam lets tests inject a fake page — the browser analogue
+  of `httpx.MockTransport`/`FakeLLMClient`, so no real Chromium runs in
+  `pytest`.
+- **Thread-affinity is the crux**: Playwright's sync API is thread-bound.
+  Tasks run in `ThreadPoolExecutor` worker threads with no asyncio loop,
+  start-to-finish in one thread; the browser is created, driven, and
+  closed entirely within that thread — including
+  `BrowserSessionCleanupHandler`, which fires inside `event_logger.log()`
+  on `task_completed`/`task_failed` (same thread) and is wired **last** in
+  the `EventDispatcher` so nothing reads task state after teardown.
+- **`browser_click`'s heuristic** (`_is_state_changing`) inspects static
+  DOM + visible text to refuse submit-like clicks, deferring them to the
+  approval-gated `browser_submit`. Documented as best-effort, not a
+  guarantee — the `HIGH_IRREVERSIBLE` approval gate is the real
+  protection, reused verbatim from Phase 1 with zero new approval code.
 
 ### Dashboard
 - **`api/`, `web/static/`**: FastAPI + plain HTML/JS, no build step.
