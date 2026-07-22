@@ -5,9 +5,18 @@ import json
 from sqlalchemy.orm import Session, sessionmaker
 
 from megachud.memory.vectorizer import embed
+from megachud.models.event import Event
 from megachud.models.memory_entry import MemoryEntry, MemoryType
 from megachud.models.reflection import Reflection
 from megachud.models.task import Task
+
+# Tools whose tool_result output is itself the useful artifact (a list of
+# links, fetched page text, a saved file path) — worth carrying into the
+# episodic memory note verbatim, not just summarized through the
+# reflection's prose. Browser tools are deliberately excluded here: their
+# output is raw page text/markup, not curated findings, and would bloat
+# the note; revisit if that's ever wanted too.
+_SOURCE_BEARING_TOOLS = {"web_search", "http_fetch", "download_file"}
 
 
 class MemoryStore:
@@ -28,11 +37,12 @@ class MemoryStore:
         also creates one SEMANTIC entry — the concrete answer to the spec's
         "should this become long-term knowledge?" question.
         """
+        sources = self._collect_sources(task.id)
         created = [
             self._create_entry(
                 memory_type=MemoryType.EPISODIC,
                 title=task.title,
-                content=self._render_episodic_content(task, reflection),
+                content=self._render_episodic_content(task, reflection, sources),
                 source_task_id=task.id,
                 reflection_id=reflection.id,
                 tags=["episodic"],
@@ -134,9 +144,38 @@ class MemoryStore:
         finally:
             session.close()
 
-    def _render_episodic_content(self, task: Task, reflection: Reflection) -> str:
+    def _collect_sources(self, task_id: str) -> list[str]:
+        """Real findings from web_search/http_fetch/download_file calls made
+        during this task — the actual URLs/results, not just the LLM's
+        summary of them. Only successful calls are included; a failed
+        fetch has nothing worth remembering."""
+        session = self._session_factory()
+        try:
+            events = (
+                session.query(Event)
+                .filter(
+                    Event.task_id == task_id,
+                    Event.event_type == "tool_result",
+                    Event.tool_name.in_(_SOURCE_BEARING_TOOLS),
+                )
+                .order_by(Event.id)
+                .all()
+            )
+            sources = []
+            for event in events:
+                payload = json.loads(event.payload_json)
+                if payload.get("success") and payload.get("output"):
+                    sources.append(f"**{event.tool_name}**\n{payload['output']}")
+            return sources
+        finally:
+            session.close()
+
+    def _render_episodic_content(self, task: Task, reflection: Reflection, sources: list[str] | None = None) -> str:
         parts = [task.prompt, *json.loads(reflection.what_worked), *json.loads(reflection.what_failed)]
-        return "\n".join(parts)
+        content = "\n".join(parts)
+        if sources:
+            content += "\n\n## Sources\n\n" + "\n\n".join(sources)
+        return content
 
     def _render_semantic_content(self, reflection: Reflection) -> str:
         parts = [*json.loads(reflection.should_change), *json.loads(reflection.wrong_assumptions)]

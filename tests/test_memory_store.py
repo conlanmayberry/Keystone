@@ -3,9 +3,26 @@ from __future__ import annotations
 import json
 
 from megachud.memory.store import MemoryStore
+from megachud.models.event import Event
 from megachud.models.memory_entry import MemoryType
 from megachud.models.reflection import Reflection
 from megachud.models.task import Task
+
+
+def log_tool_result(session_factory, task_id, tool_name, success, output) -> None:
+    session = session_factory()
+    try:
+        session.add(
+            Event(
+                task_id=task_id,
+                event_type="tool_result",
+                tool_name=tool_name,
+                payload_json=json.dumps({"success": success, "output": output, "error": None}),
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
 
 
 def make_store(session_factory) -> MemoryStore:
@@ -91,6 +108,53 @@ def test_list_by_type_filters(session_factory):
 
     assert len(user_entries) == 2
     assert len(episodic_entries) == 1
+
+
+def test_episodic_content_includes_web_search_and_http_fetch_sources(session_factory):
+    store = make_store(session_factory)
+    task = create_task(session_factory)
+    reflection = create_reflection(session_factory, task.id, become_long_term_knowledge=False)
+    log_tool_result(session_factory, task.id, "web_search", True, "- Example Result (https://example.com/a): a snippet")
+    log_tool_result(session_factory, task.id, "http_fetch", True, "<html>fetched page text</html>")
+
+    entries = store.create_episodic_from_reflection(task, reflection)
+
+    content = entries[0].content
+    assert "## Sources" in content
+    assert "https://example.com/a" in content
+    assert "fetched page text" in content
+
+
+def test_episodic_content_excludes_failed_tool_results(session_factory):
+    store = make_store(session_factory)
+    task = create_task(session_factory)
+    reflection = create_reflection(session_factory, task.id, become_long_term_knowledge=False)
+    log_tool_result(session_factory, task.id, "http_fetch", False, "")
+
+    entries = store.create_episodic_from_reflection(task, reflection)
+
+    assert "## Sources" not in entries[0].content
+
+
+def test_episodic_content_excludes_browser_tool_output(session_factory):
+    store = make_store(session_factory)
+    task = create_task(session_factory)
+    reflection = create_reflection(session_factory, task.id, become_long_term_knowledge=False)
+    log_tool_result(session_factory, task.id, "browser_read", True, "raw page markup, not a curated finding")
+
+    entries = store.create_episodic_from_reflection(task, reflection)
+
+    assert "## Sources" not in entries[0].content
+
+
+def test_episodic_content_has_no_sources_section_when_no_events(session_factory):
+    store = make_store(session_factory)
+    task = create_task(session_factory)
+    reflection = create_reflection(session_factory, task.id, become_long_term_knowledge=False)
+
+    entries = store.create_episodic_from_reflection(task, reflection)
+
+    assert "## Sources" not in entries[0].content
 
 
 def test_get_and_set_vault_path(session_factory):

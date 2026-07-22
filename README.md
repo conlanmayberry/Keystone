@@ -507,6 +507,12 @@ clean `503` if unconfigured, `502` on a real API request failure.
   `semantic` / `user`), embedded via a stateless local `HashingVectorizer`
   (no fitting, no network, no model download). `memory/retrieval.py`
   ranks by cosine similarity via one vectorized numpy matmul.
+  `MemoryStore._collect_sources` pulls the real, successful
+  `web_search`/`http_fetch`/`download_file` `tool_result` events for a
+  task and appends them as a `## Sources` section on its episodic entry —
+  the actual URLs/findings, not just the LLM's prose summary of them.
+  Browser tool output is deliberately excluded (raw page markup, not a
+  curated finding — would bloat the note).
 - **Obsidian** (`obsidian/`): mirrors every memory entry and completed task
   as Markdown with YAML frontmatter under `vault/`, with `[[wikilinks]]`
   between a task and its memory. `reindex_vault()` re-reads the vault back
