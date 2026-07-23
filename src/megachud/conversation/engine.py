@@ -6,6 +6,7 @@ from typing import Literal
 from megachud.llm.client import LLMClient
 from megachud.orchestrator.plan_validation import PlanValidationError, validate_plan_steps
 from megachud.orchestrator.task_models import ToolCall
+from megachud.routing.selector import ModelSelector
 from megachud.tools.registry import ToolRegistry
 
 __all__ = ["ConversationTurnResult", "ConversationEngine"]
@@ -32,6 +33,7 @@ class ConversationTurnResult:
     tokens_input: int
     tokens_output: int
     model: str
+    model_reason: str = "default"
 
 
 class ConversationEngine:
@@ -50,13 +52,24 @@ class ConversationEngine:
     structurally never enters the messages sent to it.
     """
 
-    def __init__(self, client: LLMClient, tool_registry: ToolRegistry, model: str, max_tokens: int) -> None:
+    def __init__(
+        self,
+        client: LLMClient,
+        tool_registry: ToolRegistry,
+        model: str,
+        max_tokens: int,
+        selector: ModelSelector | None = None,
+    ) -> None:
         self._client = client
         self._tool_registry = tool_registry
         self._model = model
         self._max_tokens = max_tokens
+        self._selector = selector
 
-    def respond(self, history: list[dict[str, str]], user_message: str) -> ConversationTurnResult:
+    def respond(
+        self, history: list[dict[str, str]], user_message: str, model: str | None = None
+    ) -> ConversationTurnResult:
+        chosen_model, model_reason = self._resolve_model(user_message, model)
         tools = self._tool_registry.all()
         tool_names = [t.name for t in tools]
         catalog = "\n".join(f"- {t.name} (risk_level={t.risk_level.value}): {t.description}" for t in tools)
@@ -95,7 +108,7 @@ class ConversationEngine:
         # Anthropic's Messages API requires strict user/assistant
         # alternation for the NEXT call to succeed).
         response = self._client.complete(
-            model=self._model,
+            model=chosen_model,
             system=_SYSTEM_PROMPT_TEMPLATE.format(catalog=catalog),
             messages=[*history, {"role": "user", "content": user_message}],
             max_tokens=self._max_tokens,
@@ -111,11 +124,18 @@ class ConversationEngine:
 
         if action == "ask_question":
             return ConversationTurnResult(
-                "ask_question", message, None, response.tokens_input, response.tokens_output, response.model
+                "ask_question", message, None, response.tokens_input, response.tokens_output, response.model, model_reason
             )
         if action == "propose_plan":
             validated = validate_plan_steps(turn.get("steps"), self._tool_registry)
             return ConversationTurnResult(
-                "propose_plan", message, validated, response.tokens_input, response.tokens_output, response.model
+                "propose_plan", message, validated, response.tokens_input, response.tokens_output, response.model, model_reason
             )
         raise PlanValidationError(f"LLM returned unknown action: {action!r}")
+
+    def _resolve_model(self, prompt: str, override: str | None) -> tuple[str, str]:
+        if self._selector is not None:
+            return self._selector.select(prompt, override=override)
+        if override:
+            return override, "manual override"
+        return self._model, "default"

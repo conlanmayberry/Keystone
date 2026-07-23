@@ -22,6 +22,9 @@ class TaskCreateRequest(BaseModel):
     # conversation message (see ConversationMessageCreateRequest below);
     # plain /tasks has no such step.
     execution_mode: Literal["auto", "full_manual"] = "auto"
+    # Optional manual model override for auto-planning; None = let the
+    # ModelSelector pick automatically.
+    model: str | None = None
 
 
 class TaskCreateResponse(BaseModel):
@@ -330,6 +333,8 @@ class ConversationMessageSummary(BaseModel):
 class ConversationMessageCreateRequest(BaseModel):
     content: str
     execution_mode: Literal["auto", "semi_manual", "full_manual"] = "auto"
+    # Optional manual model override; None = let the ModelSelector pick.
+    model: str | None = None
 
 
 class ConversationMessageCreateResponse(BaseModel):

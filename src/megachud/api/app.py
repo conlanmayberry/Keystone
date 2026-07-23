@@ -61,6 +61,7 @@ from megachud.reflection.engine import ReflectionEngine
 from megachud.reflection.handler import TaskCompletionHandler
 from megachud.reflection.llm_generator import LLMReflectionGenerator
 from megachud.routing.engine import ConfiguredModelRouter, ModelProfile
+from megachud.routing.selector import ModelSelector
 from megachud.runtime.activity import ActivityTracker
 from megachud.runtime.thoughts import ThoughtLog
 from megachud.strategy.metrics import StrategyMetricsHandler
@@ -224,9 +225,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             thought_log=thought_log,
         )
 
+    # One shared selector: manual override wins, else a heuristic escalates
+    # tier for complex/long prompts. Only the two interactive consumers
+    # (planner, conversation) use it — background cheap consumers keep their
+    # fixed defaults by design.
+    planner_selector = ModelSelector(model_profiles, default_model=settings.llm.default_planner_model)
+    conversation_selector = ModelSelector(model_profiles, default_model=settings.llm.default_conversation_model)
+
     llm_task_planner = (
         LLMTaskPlanner(
-            llm_client, registry, model=settings.llm.default_planner_model, max_tokens=settings.llm.planner_max_tokens
+            llm_client,
+            registry,
+            model=settings.llm.default_planner_model,
+            max_tokens=settings.llm.planner_max_tokens,
+            selector=planner_selector,
         )
         if llm_client is not None
         else None
@@ -238,6 +250,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             registry,
             model=settings.llm.default_conversation_model,
             max_tokens=settings.llm.conversation_max_tokens,
+            selector=conversation_selector,
         )
         if llm_client is not None
         else None

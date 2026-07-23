@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from megachud.llm.client import LLMClient
 from megachud.orchestrator.plan_validation import PlanValidationError, validate_plan_steps
 from megachud.orchestrator.task_models import ToolCall
+from megachud.routing.selector import ModelSelector
 from megachud.tools.registry import ToolRegistry
 
 __all__ = ["PlanResult", "PlanValidationError", "LLMTaskPlanner"]
@@ -25,6 +26,7 @@ class PlanResult:
     tokens_input: int
     tokens_output: int
     model: str
+    model_reason: str = "default"
 
 
 class LLMTaskPlanner:
@@ -37,13 +39,22 @@ class LLMTaskPlanner:
     runaway-agent risk" property every prior phase has relied on.
     """
 
-    def __init__(self, client: LLMClient, tool_registry: ToolRegistry, model: str, max_tokens: int) -> None:
+    def __init__(
+        self,
+        client: LLMClient,
+        tool_registry: ToolRegistry,
+        model: str,
+        max_tokens: int,
+        selector: ModelSelector | None = None,
+    ) -> None:
         self._client = client
         self._tool_registry = tool_registry
         self._model = model
         self._max_tokens = max_tokens
+        self._selector = selector
 
-    def plan(self, prompt: str) -> PlanResult:
+    def plan(self, prompt: str, model: str | None = None) -> PlanResult:
+        chosen_model, model_reason = self._resolve_model(prompt, model)
         tools = self._tool_registry.all()
         tool_names = [t.name for t in tools]
         catalog = "\n".join(f"- {t.name} (risk_level={t.risk_level.value}): {t.description}" for t in tools)
@@ -75,7 +86,7 @@ class LLMTaskPlanner:
         # no deterministic fallback to degrade to: a plan that silently
         # became "no plan" would be more confusing than a clean error.
         response = self._client.complete(
-            model=self._model,
+            model=chosen_model,
             system=_SYSTEM_PROMPT_TEMPLATE.format(catalog=catalog),
             messages=[{"role": "user", "content": prompt}],
             max_tokens=self._max_tokens,
@@ -93,4 +104,12 @@ class LLMTaskPlanner:
             tokens_input=response.tokens_input,
             tokens_output=response.tokens_output,
             model=response.model,
+            model_reason=model_reason,
         )
+
+    def _resolve_model(self, prompt: str, override: str | None) -> tuple[str, str]:
+        if self._selector is not None:
+            return self._selector.select(prompt, override=override)
+        if override:
+            return override, "manual override"
+        return self._model, "default"

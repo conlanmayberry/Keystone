@@ -40,6 +40,25 @@ def test_happy_path_produces_validated_plan(tmp_workspace):
     assert result.model == "test-model"
 
 
+def test_manual_model_override_reaches_the_client(tmp_workspace):
+    from megachud.routing.engine import ModelProfile
+    from megachud.routing.selector import ModelSelector
+
+    registry = make_registry(tmp_workspace)
+    client = FakeLLMClient(response=response_with_steps([{"tool_name": "read_file", "args": {"path": "a.txt"}}]))
+    profiles = [
+        ModelProfile("claude-haiku-4-5-20251001", 0.001, 0.005, 1, 500),
+        ModelProfile("claude-opus-4-8", 0.005, 0.025, 3, 2500),
+    ]
+    selector = ModelSelector(profiles, default_model="claude-haiku-4-5-20251001")
+    planner = LLMTaskPlanner(client, registry, "claude-haiku-4-5-20251001", 1000, selector=selector)
+
+    result = planner.plan("read a file", model="claude-opus-4-8")
+
+    assert client.calls[0]["model"] == "claude-opus-4-8"
+    assert result.model_reason == "manual override"
+
+
 def test_hallucinated_tool_name_raises_plan_validation_error(tmp_workspace):
     registry = make_registry(tmp_workspace)
     client = FakeLLMClient(response=response_with_steps([{"tool_name": "delete_universe", "args": {}}]))

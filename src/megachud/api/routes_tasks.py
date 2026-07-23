@@ -31,7 +31,7 @@ def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateRespo
             raise HTTPException(status_code=503, detail="LLM planning is not configured (no ANTHROPIC_API_KEY)")
 
         try:
-            plan_result = planner.plan(payload.prompt)
+            plan_result = planner.plan(payload.prompt, model=payload.model)
         except PlanValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except LLMRequestError as exc:
@@ -39,6 +39,7 @@ def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateRespo
 
         plan = [{"tool_name": c.tool_name, "args": c.args} for c in plan_result.plan]
         plan_tokens = (plan_result.model, plan_result.tokens_input, plan_result.tokens_output)
+        plan_model_reason = plan_result.model_reason
     else:
         plan = [{"tool_name": c.tool_name, "args": c.args} for c in payload.tool_calls]
 
@@ -77,7 +78,8 @@ def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateRespo
         )
         tool_names = ", ".join(c["tool_name"] for c in plan) or "(no steps)"
         request.app.state.thought_log.record(
-            "planner", f"Planned {len(plan)} step(s) for '{payload.title}': {tool_names}"
+            "planner",
+            f"Planned {len(plan)} step(s) for '{payload.title}' [{model} — {plan_model_reason}]: {tool_names}",
         )
 
     orchestrator = request.app.state.orchestrator

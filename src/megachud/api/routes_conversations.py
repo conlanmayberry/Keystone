@@ -187,14 +187,14 @@ def send_message(
     # user/assistant alternation, so a dangling unanswered user turn would
     # break the next call's history.
     try:
-        turn = engine.respond(history, payload.content)
+        turn = engine.respond(history, payload.content, model=payload.model)
     except (LLMRequestError, PlanValidationError) as exc:
         assistant_message = _persist_assistant_message(
             session_factory, conversation_id, content=f"I couldn't respond right now: {exc}"
         )
         return ConversationMessageCreateResponse(user_message=user_summary, assistant_message=assistant_message)
 
-    request.app.state.thought_log.record("conversation", turn.message)
+    request.app.state.thought_log.record("conversation", f"[{turn.model} — {turn.model_reason}] {turn.message}")
 
     if turn.action == "ask_question":
         assistant_message = _persist_assistant_message(session_factory, conversation_id, content=turn.message)
