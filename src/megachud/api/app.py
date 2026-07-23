@@ -74,8 +74,14 @@ from megachud.tools.browser_tools import (
     BrowserReadTool,
     BrowserSubmitTool,
 )
-from megachud.tools.file_tools import ReadFileTool, WriteFileTool
-from megachud.tools.internet_tools import DownloadFileTool, HttpFetchTool
+from megachud.tools.file_tools import (
+    AppendFileTool,
+    ListDirectoryTool,
+    ReadFileTool,
+    SearchFilesTool,
+    WriteFileTool,
+)
+from megachud.tools.internet_tools import DownloadFileTool, ExtractTextTool, HttpFetchTool
 from megachud.tools.registry import ToolRegistry
 from megachud.tools.shell_tool import ShellExecTool
 from megachud.tools.web_search_tool import WebSearchTool
@@ -107,6 +113,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     registry = ToolRegistry()
     registry.register(ReadFileTool(settings.workspace_root))
     registry.register(WriteFileTool(settings.workspace_root))
+    registry.register(AppendFileTool(settings.workspace_root))
+    registry.register(ListDirectoryTool(settings.workspace_root))
+    registry.register(SearchFilesTool(settings.workspace_root))
     registry.register(
         ShellExecTool(
             settings.workspace_root,
@@ -117,6 +126,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     registry.register(
         HttpFetchTool(
+            max_response_bytes=settings.internet.fetch.max_response_bytes,
+            timeout_seconds=settings.internet.fetch.timeout_seconds,
+            max_redirects=settings.internet.fetch.max_redirects,
+            domain_allowlist=settings.internet.domain_allowlist,
+            domain_denylist=settings.internet.domain_denylist,
+        )
+    )
+    registry.register(
+        ExtractTextTool(
             max_response_bytes=settings.internet.fetch.max_response_bytes,
             timeout_seconds=settings.internet.fetch.timeout_seconds,
             max_redirects=settings.internet.fetch.max_redirects,

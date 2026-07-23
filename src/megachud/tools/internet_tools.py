@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from contextlib import contextmanager
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Iterator
 from urllib.parse import urljoin, urlsplit
@@ -308,4 +309,123 @@ class DownloadFileTool(Tool):
                 "folder_quota_bytes": self.max_folder_bytes,
                 "status_code": response.status_code,
             },
+        )
+
+
+class _TextExtractor(HTMLParser):
+    """Minimal, dependency-free HTML → readable-text extractor. Drops the
+    contents of script/style/head-noise elements entirely, keeps the text
+    of everything else, and inserts line breaks around block-level tags so
+    the result reads like the page rather than one run-on line."""
+
+    _SKIP = {"script", "style", "noscript", "template", "svg"}
+    _BLOCK = {
+        "p", "br", "div", "section", "article", "header", "footer", "li",
+        "tr", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "table", "blockquote",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        if tag in self._SKIP:
+            self._skip_depth += 1
+        elif tag in self._BLOCK:
+            self._parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._SKIP and self._skip_depth > 0:
+            self._skip_depth -= 1
+        elif tag in self._BLOCK:
+            self._parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth == 0:
+            self._parts.append(data)
+
+    def text(self) -> str:
+        raw = "".join(self._parts)
+        # Collapse runs of blank lines and trailing whitespace per line.
+        lines = [line.strip() for line in raw.splitlines()]
+        collapsed: list[str] = []
+        for line in lines:
+            if line or (collapsed and collapsed[-1]):
+                collapsed.append(line)
+        return "\n".join(collapsed).strip()
+
+
+def html_to_text(html: str) -> str:
+    parser = _TextExtractor()
+    parser.feed(html)
+    parser.close()
+    return parser.text()
+
+
+class ExtractTextTool(Tool):
+    name = "extract_text"
+    description = (
+        "Extract readable plain text from a web page or raw HTML — drops "
+        "tags, scripts, and styles. Pass 'url' to fetch and extract in one "
+        "step (same SSRF/scheme safety as http_fetch), or 'html' to extract "
+        "from HTML you already have. Use this instead of http_fetch when you "
+        "want the page's content, not its markup."
+    )
+    risk_level = RiskLevel.LOW
+
+    def __init__(
+        self,
+        *,
+        max_response_bytes: int = 2_000_000,
+        timeout_seconds: float = 15.0,
+        max_redirects: int = 5,
+        domain_allowlist: list[str] | None = None,
+        domain_denylist: list[str] | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self.max_response_bytes = max_response_bytes
+        self.timeout_seconds = timeout_seconds
+        self.max_redirects = max_redirects
+        self.domain_allowlist = domain_allowlist
+        self.domain_denylist = domain_denylist
+        self._transport = transport
+
+    def validate_args(self, args: dict[str, Any]) -> None:
+        has_url = isinstance(args.get("url"), str) and args["url"].strip()
+        has_html = isinstance(args.get("html"), str) and args["html"]
+        if not has_url and not has_html:
+            raise ToolValidationError("one of 'url' (non-empty str) or 'html' (str) is required")
+
+    def run(self, args: dict[str, Any]) -> ToolResult:
+        self.validate_args(args)
+
+        if args.get("html"):
+            return ToolResult(success=True, output=html_to_text(args["html"]), metadata={"source": "html"})
+
+        url = args["url"]
+        try:
+            with open_validated_stream(
+                url,
+                timeout_seconds=self.timeout_seconds,
+                max_redirects=self.max_redirects,
+                domain_allowlist=self.domain_allowlist,
+                domain_denylist=self.domain_denylist,
+                transport=self._transport,
+            ) as (response, redirect_count):
+                body, truncated = _read_capped(response, self.max_response_bytes)
+                final_url = str(response.url)
+                encoding = response.encoding
+        except (UrlSafetyError, TooManyRedirectsError) as exc:
+            return ToolResult(success=False, output="", error=str(exc))
+        except httpx.TimeoutException:
+            return ToolResult(success=False, output="", error=f"request timed out after {self.timeout_seconds}s")
+        except httpx.TransportError as exc:
+            return ToolResult(success=False, output="", error=f"request failed: {exc}")
+
+        text = html_to_text(body.decode(encoding or "utf-8", errors="replace"))
+        return ToolResult(
+            success=True,
+            output=text,
+            metadata={"source": "url", "final_url": final_url, "truncated": truncated, "redirect_count": redirect_count},
         )
