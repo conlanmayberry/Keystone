@@ -13,6 +13,7 @@ from megachud.models.memory_entry import MemoryType
 from megachud.models.reflection import Reflection
 from megachud.models.task import Task
 from megachud.routing.engine import ModelProfile, compute_cost_usd
+from megachud.runtime.thoughts import ThoughtLog
 
 
 class CuriosityHandler:
@@ -39,6 +40,7 @@ class CuriosityHandler:
         text_generator: CuriosityTextGenerator | None = None,
         event_logger: EventLogger | None = None,
         profiles: list[ModelProfile] | None = None,
+        thought_log: ThoughtLog | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._vector_dim = vector_dim
@@ -47,6 +49,7 @@ class CuriosityHandler:
         self._text_generator = text_generator or DeterministicCuriosityTextGenerator()
         self._event_logger = event_logger
         self._profiles = profiles
+        self._thought_log = thought_log
 
     def __call__(self, event: Event) -> None:
         if event.event_type not in ("task_completed", "task_failed") or event.task_id is None:
@@ -82,6 +85,8 @@ class CuriosityHandler:
             text.objective_descriptions["inspect_previous_work"],
         )
         self._raise_pending_question(task_id, reflection_id, text.question)
+        if self._thought_log is not None:
+            self._thought_log.record("curiosity", text.question)
 
     def _best_prior_similarity(self, task_id: str, query_text: str) -> float:
         """CRITICAL self-match guard: excludes any result whose

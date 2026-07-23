@@ -9,6 +9,7 @@ from megachud.models.event import Event
 from megachud.models.task import Task
 from megachud.reflection.generator import DeterministicReflectionGenerator, ReflectionDraft, ReflectionGenerator
 from megachud.routing.engine import ModelProfile, compute_cost_usd
+from megachud.runtime.thoughts import ThoughtLog
 
 _TOOL_SCHEMA = {
     "name": "submit_reflection",
@@ -54,6 +55,7 @@ class LLMReflectionGenerator(ReflectionGenerator):
         max_tokens: int,
         event_logger: EventLogger,
         fallback: ReflectionGenerator | None = None,
+        thought_log: ThoughtLog | None = None,
     ) -> None:
         self._client = client
         self._model = model
@@ -61,6 +63,7 @@ class LLMReflectionGenerator(ReflectionGenerator):
         self._max_tokens = max_tokens
         self._event_logger = event_logger
         self._fallback = fallback or DeterministicReflectionGenerator()
+        self._thought_log = thought_log
 
     def generate(self, task: Task, evaluation: Evaluation | None, events: list[Event]) -> ReflectionDraft:
         try:
@@ -90,6 +93,8 @@ class LLMReflectionGenerator(ReflectionGenerator):
             return self._fallback.generate(task, evaluation, events)
 
         self._log_cost(task.id, response.model, response.tokens_input, response.tokens_output)
+        if self._thought_log is not None and draft.should_change:
+            self._thought_log.record("reflection", f"On '{task.title}', I'd change: {draft.should_change[0]}")
         return draft
 
     def _build_prompt(self, task: Task, evaluation: Evaluation | None, events: list[Event]) -> str:

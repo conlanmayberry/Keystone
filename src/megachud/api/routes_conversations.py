@@ -17,6 +17,7 @@ from megachud.models.task import Task
 from megachud.orchestrator.plan_validation import PlanValidationError
 from megachud.orchestrator.task_models import ToolCall
 from megachud.routing.engine import compute_cost_usd
+from megachud.runtime.activity import submit_tracked
 
 router = APIRouter()
 
@@ -54,7 +55,9 @@ def _launch_task_from_plan(request: Request, *, title: str, prompt: str, plan, e
         task_id = task.id
     finally:
         session.close()
-    request.app.state.executor.submit(request.app.state.orchestrator.run_task, task_id)
+    submit_tracked(
+        request.app.state.executor, request.app.state.activity, request.app.state.orchestrator.run_task, task_id
+    )
     return task_id
 
 
@@ -190,6 +193,8 @@ def send_message(
             session_factory, conversation_id, content=f"I couldn't respond right now: {exc}"
         )
         return ConversationMessageCreateResponse(user_message=user_summary, assistant_message=assistant_message)
+
+    request.app.state.thought_log.record("conversation", turn.message)
 
     if turn.action == "ask_question":
         assistant_message = _persist_assistant_message(session_factory, conversation_id, content=turn.message)

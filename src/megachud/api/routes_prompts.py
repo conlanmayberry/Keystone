@@ -37,4 +37,5 @@ def draft_prompt(payload: PromptDraftRequest, request: Request) -> PromptDraftRe
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     _log_prompt_drafter_llm_cost(request, result)
+    request.app.state.thought_log.record("prompt_drafter", f"Drafted a prompt: {result.prompt}")
     return PromptDraftResponse(prompt=result.prompt, model=result.model)

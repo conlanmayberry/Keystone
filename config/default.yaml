@@ -126,3 +126,10 @@ internet:
     viewport_width: 1280
     viewport_height: 800
     state_changing_button_text: ["buy", "purchase", "order", "pay", "checkout", "submit", "confirm", "delete", "remove", "send", "post", "subscribe"]
+
+# The live "thoughts" feed is an ephemeral in-memory ring buffer — capped
+# so old entries fall off and nothing is stored permanently (lost on
+# restart, by design).
+runtime:
+  thought_max_entries: 50
+  thought_max_chars: 400

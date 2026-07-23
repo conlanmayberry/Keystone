@@ -11,6 +11,7 @@ from megachud.models.event import Event
 from megachud.models.task import Task
 from megachud.orchestrator.llm_planner import PlanValidationError
 from megachud.routing.engine import compute_cost_usd
+from megachud.runtime.activity import submit_tracked
 
 router = APIRouter()
 
@@ -74,9 +75,13 @@ def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateRespo
             tokens_output=tokens_output,
             payload={"model": model, "consumer": "planner"},
         )
+        tool_names = ", ".join(c["tool_name"] for c in plan) or "(no steps)"
+        request.app.state.thought_log.record(
+            "planner", f"Planned {len(plan)} step(s) for '{payload.title}': {tool_names}"
+        )
 
     orchestrator = request.app.state.orchestrator
-    request.app.state.executor.submit(orchestrator.run_task, task_id)
+    submit_tracked(request.app.state.executor, request.app.state.activity, orchestrator.run_task, task_id)
 
     return TaskCreateResponse(id=task_id, status=status)
 

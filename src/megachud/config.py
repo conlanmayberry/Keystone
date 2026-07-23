@@ -144,6 +144,14 @@ class LLMConfig(BaseModel):
     timeout_seconds: float = 60.0
 
 
+class RuntimeConfig(BaseModel):
+    # The "thoughts" feed is a deliberately ephemeral, in-memory ring
+    # buffer — capped so old thoughts fall off and nothing is stored
+    # permanently. Lost on restart, by design.
+    thought_max_entries: int = 50
+    thought_max_chars: int = 400
+
+
 class Settings(BaseModel):
     workspace_root: Path
     db_path: Path
@@ -171,6 +179,7 @@ class Settings(BaseModel):
     plugins: PluginsConfig = PluginsConfig()
     llm: LLMConfig = LLMConfig()
     internet: InternetConfig = InternetConfig()
+    runtime: RuntimeConfig = RuntimeConfig()
 
     @classmethod
     def load(

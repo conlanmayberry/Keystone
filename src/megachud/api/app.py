@@ -26,6 +26,7 @@ from megachud.api import (
     routes_prompts,
     routes_review,
     routes_routing,
+    routes_status,
     routes_strategy,
     routes_tasks,
     ws,
@@ -60,6 +61,8 @@ from megachud.reflection.engine import ReflectionEngine
 from megachud.reflection.handler import TaskCompletionHandler
 from megachud.reflection.llm_generator import LLMReflectionGenerator
 from megachud.routing.engine import ConfiguredModelRouter, ModelProfile
+from megachud.runtime.activity import ActivityTracker
+from megachud.runtime.thoughts import ThoughtLog
 from megachud.strategy.metrics import StrategyMetricsHandler
 from megachud.browser.cleanup import BrowserSessionCleanupHandler
 from megachud.browser.session import BrowserSessionManager
@@ -90,6 +93,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     bus = EventBus()
     current_agent_id = get_or_create_agent(session_factory, settings.agent_name)
+
+    # Live runtime state (in-memory, ephemeral). Created early so the
+    # background reflection/curiosity components can record thoughts too.
+    activity = ActivityTracker()
+    thought_log = ThoughtLog(
+        max_entries=settings.runtime.thought_max_entries, max_chars=settings.runtime.thought_max_chars
+    )
 
     # Build the default (non-plugin) tool set first, so plugin loading can
     # only add to an already-valid baseline.
@@ -211,6 +221,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             profiles=model_profiles,
             max_tokens=settings.llm.reflection_max_tokens,
             event_logger=plain_event_logger,
+            thought_log=thought_log,
         )
 
     llm_task_planner = (
@@ -268,6 +279,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         text_generator=curiosity_text_generator,
         event_logger=plain_event_logger,
         profiles=model_profiles,
+        thought_log=thought_log,
     )
 
     # Order matters: completion_handler must run first — curiosity_handler
@@ -333,6 +345,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.llm_task_planner = llm_task_planner
     app.state.conversation_engine = conversation_engine
     app.state.prompt_drafter = prompt_drafter
+    app.state.activity = activity
+    app.state.thought_log = thought_log
     app.state.executor = ThreadPoolExecutor(max_workers=4)
 
     app.include_router(routes_tasks.router)
@@ -348,6 +362,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(routes_analytics.router)
     app.include_router(routes_review.router)
     app.include_router(routes_routing.router)
+    app.include_router(routes_status.router)
     app.include_router(routes_agents.router)
     app.include_router(routes_meta.router)
     app.include_router(routes_plugins.router)
