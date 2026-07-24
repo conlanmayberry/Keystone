@@ -52,16 +52,23 @@ function connectLiveFeed() {
   ws.onmessage = (msg) => {
     const event = JSON.parse(msg.data);
     appendActivityEvent(event);
+    // Any event is a sign something changed — refresh the cheap live views.
+    refreshThoughts();
+    refreshStatus();
     if (["task_completed", "task_failed", "approval_requested", "approval_resolved"].includes(event.event_type)) {
       refreshTasks();
-      refreshApprovals();
+      refreshRequests();
       refreshStrategies();
       refreshChatMessages();
     }
     if (["promotion_requested", "promotion_resolved"].includes(event.event_type)) {
+      refreshRequests();
       refreshExperiments();
       refreshStrategies();
     }
+    // Curiosity questions are raised inside the task_completed/task_failed
+    // chain (no dedicated event), so the branch above already refreshes
+    // Requests when a new question appears.
   };
   ws.onclose = () => setTimeout(connectLiveFeed, 2000);
 }
@@ -234,14 +241,16 @@ el("chat-form").addEventListener("submit", async (e) => {
       const conversation = await fetchJson("/conversations", { method: "POST" });
       selectedConversationId = conversation.id;
     }
+    const model = el("chat-model").value;
     await fetchJson(`/conversations/${selectedConversationId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, execution_mode: selectedExecutionMode() }),
+      body: JSON.stringify({ content, execution_mode: selectedExecutionMode(), model: model || null }),
     });
     input.value = "";
     await refreshConversationList();
     await refreshChatMessages();
+    refreshThoughts();
   } catch (err) {
     status.textContent = `Error: ${err.message}`;
     status.style.color = "var(--danger)";
@@ -277,8 +286,25 @@ el("draft-prompt-btn").addEventListener("click", async () => {
   }
 });
 
-async function refreshApprovals() {
-  const approvals = await fetchJson("/approvals?status=pending");
+// --- Requests (consolidated: approvals + promotions + questions) ---
+
+async function refreshRequests() {
+  const [approvals, promotions, questions] = await Promise.all([
+    fetchJson("/approvals?status=pending"),
+    fetchJson("/promotions?status=pending"),
+    fetchJson("/questions?status=pending"),
+  ]);
+  renderApprovals(approvals);
+  renderPromotions(promotions);
+  renderQuestions(questions);
+
+  const total = approvals.length + promotions.length + questions.length;
+  const badge = el("requests-badge");
+  badge.textContent = total;
+  badge.hidden = total === 0;
+}
+
+function renderApprovals(approvals) {
   const container = el("approvals-list");
   if (approvals.length === 0) {
     container.innerHTML = "No pending approvals.";
@@ -301,13 +327,67 @@ async function refreshApprovals() {
   }
 }
 
+function renderPromotions(promotions) {
+  const container = el("promotion-list");
+  if (promotions.length === 0) {
+    container.innerHTML = "No pending promotions.";
+    return;
+  }
+  container.innerHTML = "";
+  for (const p of promotions) {
+    const div = document.createElement("div");
+    div.className = "approval-item";
+    div.innerHTML = `
+      <span>${p.workflow_name}: ${p.from_strategy_id.slice(0, 8)} -> ${p.to_strategy_id.slice(0, 8)} (${p.justification})</span>
+      <span class="actions">
+        <button class="approve">Approve</button>
+        <button class="deny">Deny</button>
+      </span>
+    `;
+    div.querySelector(".approve").addEventListener("click", () => decidePromotion(p.id, true));
+    div.querySelector(".deny").addEventListener("click", () => decidePromotion(p.id, false));
+    container.appendChild(div);
+  }
+}
+
+function renderQuestions(questions) {
+  const container = el("question-list");
+  if (questions.length === 0) {
+    container.innerHTML = "No pending questions.";
+    return;
+  }
+  container.innerHTML = "";
+  for (const q of questions) {
+    const div = document.createElement("div");
+    div.className = "memory-item";
+    div.innerHTML = `
+      <div>${q.question}</div>
+      <div class="memory-meta">${q.context}</div>
+      <textarea class="answer-box" rows="2" placeholder="Your answer..."></textarea>
+      <button class="answer-btn" type="button">Answer</button>
+    `;
+    div.querySelector(".answer-btn").addEventListener("click", async () => {
+      const answer = div.querySelector(".answer-box").value.trim();
+      if (!answer) return;
+      await fetchJson(`/questions/${q.id}/answer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer }),
+      });
+      refreshRequests();
+      refreshMemory();
+    });
+    container.appendChild(div);
+  }
+}
+
 async function decideApproval(approvalId, approved) {
   await fetchJson(`/approvals/${approvalId}/decision`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ approved }),
   });
-  refreshApprovals();
+  refreshRequests();
   refreshTasks();
 }
 
@@ -508,28 +588,7 @@ async function refreshExperiments() {
       container.appendChild(div);
     }
   }
-
-  const promotions = await fetchJson("/promotions?status=pending");
-  const promoContainer = el("promotion-list");
-  if (promotions.length === 0) {
-    promoContainer.innerHTML = "No pending promotions.";
-    return;
-  }
-  promoContainer.innerHTML = "";
-  for (const p of promotions) {
-    const div = document.createElement("div");
-    div.className = "approval-item";
-    div.innerHTML = `
-      <span>${p.workflow_name}: ${p.from_strategy_id.slice(0, 8)} -> ${p.to_strategy_id.slice(0, 8)} (${p.justification})</span>
-      <span class="actions">
-        <button class="approve">Approve</button>
-        <button class="deny">Deny</button>
-      </span>
-    `;
-    div.querySelector(".approve").addEventListener("click", () => decidePromotion(p.id, true));
-    div.querySelector(".deny").addEventListener("click", () => decidePromotion(p.id, false));
-    promoContainer.appendChild(div);
-  }
+  // Pending promotions now live in the Requests tab (refreshRequests).
 }
 
 async function decidePromotion(promotionId, approved) {
@@ -538,6 +597,7 @@ async function decidePromotion(promotionId, approved) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ approved }),
   });
+  refreshRequests();
   refreshExperiments();
   refreshStrategies();
 }
@@ -568,39 +628,9 @@ el("new-experiment-form").addEventListener("submit", async (e) => {
   }
 });
 
-// --- Curiosity ---
+// --- Curiosity research objectives (pending questions moved to Requests) ---
 
-async function refreshCuriosity() {
-  const questions = await fetchJson("/questions?status=pending");
-  const qContainer = el("question-list");
-  if (questions.length === 0) {
-    qContainer.innerHTML = "No pending questions.";
-  } else {
-    qContainer.innerHTML = "";
-    for (const q of questions) {
-      const div = document.createElement("div");
-      div.className = "memory-item";
-      div.innerHTML = `
-        <div>${q.question}</div>
-        <div class="memory-meta">${q.context}</div>
-        <textarea class="answer-box" rows="2" placeholder="Your answer..."></textarea>
-        <button class="answer-btn" type="button">Answer</button>
-      `;
-      div.querySelector(".answer-btn").addEventListener("click", async () => {
-        const answer = div.querySelector(".answer-box").value.trim();
-        if (!answer) return;
-        await fetchJson(`/questions/${q.id}/answer`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ answer }),
-        });
-        refreshCuriosity();
-        refreshMemory();
-      });
-      qContainer.appendChild(div);
-    }
-  }
-
+async function refreshObjectives() {
   const objectives = await fetchJson("/research_objectives");
   const oContainer = el("objective-list");
   if (objectives.length === 0) {
@@ -809,12 +839,14 @@ el("new-task-form").addEventListener("submit", async (e) => {
   const autoPlan = el("task-auto-plan").checked;
   const fullManual = el("task-full-manual").checked;
   try {
+    const model = el("task-model").value;
     const body = {
       title: el("task-title").value,
       prompt: el("task-prompt").value,
       auto_plan: autoPlan,
       tool_calls: autoPlan ? [] : JSON.parse(el("task-tool-calls").value || "[]"),
       execution_mode: fullManual ? "full_manual" : "auto",
+      model: model || null,
     };
     const result = await fetchJson("/tasks", {
       method: "POST",
@@ -878,28 +910,115 @@ async function populateAgentFilters() {
 el("tasks-agent-filter").addEventListener("change", refreshTasks);
 el("analytics-agent-filter").addEventListener("change", refreshAnalytics);
 
+// --- Live status bar ---
+
+function formatDuration(seconds) {
+  const s = Math.floor(seconds % 60);
+  const m = Math.floor((seconds / 60) % 60);
+  const h = Math.floor(seconds / 3600);
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+async function refreshStatus() {
+  let status;
+  try {
+    status = await fetchJson("/status");
+  } catch {
+    return; // transient; the next tick will catch up
+  }
+  const dot = el("status-dot");
+  const text = el("status-text");
+  const working = status.active || status.open_tasks > 0;
+  dot.className = working ? "working" : "idle";
+  if (working) {
+    const dur = status.working_seconds != null ? ` ${formatDuration(status.working_seconds)}` : "";
+    const openBit = status.open_tasks > 0 ? ` · ${status.open_tasks} open` : "";
+    text.textContent = `Working${dur}${openBit}`;
+  } else {
+    text.textContent = `Idle · up ${formatDuration(status.uptime_seconds)}`;
+  }
+}
+
+// --- Agent thoughts (ephemeral, capped, cleared on restart) ---
+
+async function refreshThoughts() {
+  let thoughts;
+  try {
+    thoughts = await fetchJson("/thoughts");
+  } catch {
+    return;
+  }
+  const container = el("thoughts-list");
+  if (thoughts.length === 0) {
+    container.innerHTML = "No thoughts yet.";
+    return;
+  }
+  container.innerHTML = "";
+  for (const t of thoughts) {
+    const div = document.createElement("div");
+    div.className = "thought-entry";
+    const ts = t.ts ? new Date(t.ts).toLocaleTimeString() : "";
+    div.innerHTML = `<span class="thought-source">${t.source}</span><span class="memory-meta"> ${ts}</span><div>${t.text}</div>`;
+    container.appendChild(div);
+  }
+}
+
+// --- Model dropdowns (Auto + each configured profile) ---
+
+async function populateModelDropdowns() {
+  let profiles;
+  try {
+    profiles = await fetchJson("/routing/profiles");
+  } catch {
+    return;
+  }
+  for (const selectId of ["chat-model", "task-model"]) {
+    const select = el(selectId);
+    if (!select) continue;
+    const current = select.value;
+    select.innerHTML = `<option value="">Auto</option>`;
+    for (const p of profiles) {
+      const option = document.createElement("option");
+      option.value = p.name;
+      option.textContent = p.name;
+      select.appendChild(option);
+    }
+    select.value = current;
+  }
+}
+
 connectLiveFeed();
 refreshConversationList();
 refreshTasks();
-refreshApprovals();
+refreshRequests();
 refreshMemory();
 refreshStrategies();
 refreshExperiments();
-refreshCuriosity();
+refreshObjectives();
 refreshBottlenecks();
 refreshAnalytics();
 refreshReviewHistory();
 refreshRoutingProfiles();
 refreshPlugins();
 refreshMeta();
+refreshStatus();
+refreshThoughts();
+populateModelDropdowns();
 populateAgentFilters().then(() => {
   // Re-apply once agent options exist, in case a filter was mid-selection.
   refreshTasks();
   refreshAnalytics();
 });
-setInterval(refreshTasks, 5000);
-setInterval(refreshApprovals, 3000);
-setInterval(refreshStrategies, 5000);
-setInterval(refreshExperiments, 5000);
-setInterval(refreshCuriosity, 3000);
-setInterval(refreshAnalytics, 15000);
+
+// Polling is now minimal: the websocket drives event-based refreshes
+// (tasks/requests/strategies/thoughts on relevant events). We keep just a
+// fast /status heartbeat for the "Working 0:42" bar, and one slow catch-up
+// sweep so nothing goes stale if a websocket event is ever missed.
+setInterval(refreshStatus, 2000);
+setInterval(() => {
+  refreshRequests();
+  refreshTasks();
+  refreshStrategies();
+  refreshExperiments();
+}, 30000);

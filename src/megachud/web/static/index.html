@@ -10,12 +10,17 @@
     <h1>MegaChud</h1>
     <nav id="tab-bar">
       <button class="tab-btn active" data-tab="tab-chat" type="button">Chat</button>
+      <button class="tab-btn" data-tab="tab-requests" type="button">Requests <span id="requests-badge" class="tab-badge" hidden>0</span></button>
       <button class="tab-btn" data-tab="tab-run" type="button">Run</button>
       <button class="tab-btn" data-tab="tab-tasks" type="button">Tasks</button>
       <button class="tab-btn" data-tab="tab-memory" type="button">Memory</button>
       <button class="tab-btn" data-tab="tab-improve" type="button">Improve</button>
       <button class="tab-btn" data-tab="tab-insights" type="button">Insights</button>
     </nav>
+    <div id="status-bar" title="Live agent activity">
+      <span id="status-dot" class="idle"></span>
+      <span id="status-text">Idle</span>
+    </div>
     <span class="identity-label" id="identity-label"></span>
   </header>
 
@@ -33,13 +38,18 @@
           <div class="chat-main">
             <div id="chat-messages" class="hint">Start a new conversation, or select one on the left.</div>
             <form id="chat-form">
-              <div class="segmented-control" id="execution-mode-control">
-                <input type="radio" name="exec-mode" id="mode-auto" value="auto" checked />
-                <label for="mode-auto">Auto</label>
-                <input type="radio" name="exec-mode" id="mode-semi" value="semi_manual" />
-                <label for="mode-semi">Semi-Manual</label>
-                <input type="radio" name="exec-mode" id="mode-full" value="full_manual" />
-                <label for="mode-full">Full-Manual</label>
+              <div class="chat-form-controls">
+                <div class="segmented-control" id="execution-mode-control">
+                  <input type="radio" name="exec-mode" id="mode-auto" value="auto" checked />
+                  <label for="mode-auto">Auto</label>
+                  <input type="radio" name="exec-mode" id="mode-semi" value="semi_manual" />
+                  <label for="mode-semi">Semi-Manual</label>
+                  <input type="radio" name="exec-mode" id="mode-full" value="full_manual" />
+                  <label for="mode-full">Full-Manual</label>
+                </div>
+                <label class="model-picker">Model
+                  <select id="chat-model"><option value="">Auto</option></select>
+                </label>
               </div>
               <p class="hint" id="execution-mode-hint">Auto: the agent plans and runs automatically (still pausing for any high-risk step).</p>
               <textarea id="chat-input" rows="2" placeholder="Tell the agent what to do..."></textarea>
@@ -49,8 +59,25 @@
               </div>
             </form>
             <p id="chat-status"></p>
+            <details id="thoughts-details">
+              <summary>Agent thoughts <span class="hint">(ephemeral — recent only, cleared on restart)</span></summary>
+              <div id="thoughts-list" class="hint">No thoughts yet.</div>
+            </details>
           </div>
         </div>
+      </section>
+    </div>
+
+    <div class="tab-page" id="tab-requests">
+      <section class="panel wide" id="requests-panel">
+        <h2>Requests</h2>
+        <p class="hint">Everything the agent is waiting on you for — approve or answer here to let it keep going.</p>
+        <h3>Tool Approvals</h3>
+        <div id="approvals-list">No pending approvals.</div>
+        <h3>Strategy Promotions</h3>
+        <div id="promotion-list">No pending promotions.</div>
+        <h3>Curiosity Questions</h3>
+        <div id="question-list">No pending questions.</div>
       </section>
     </div>
 
@@ -65,6 +92,9 @@
           </label>
           <label class="inline-checkbox">
             <input type="checkbox" id="task-full-manual" /> Full-manual — pause for approval before every step, not just high-risk ones
+          </label>
+          <label class="model-picker">Model (for auto-plan)
+            <select id="task-model"><option value="">Auto</option></select>
           </label>
           <label>
             Tool calls (JSON array of {"tool_name","args"})
@@ -81,11 +111,6 @@
       <section class="panel" id="working-summary-panel">
         <h2>Working Summary</h2>
         <div id="working-summary" class="hint">Select a task on the Tasks tab to see its working summary.</div>
-      </section>
-
-      <section class="panel" id="approvals-panel">
-        <h2>Pending Approvals</h2>
-        <div id="approvals-list">No pending approvals.</div>
       </section>
 
       <section class="panel wide" id="activity-panel">
@@ -138,10 +163,8 @@
       </section>
 
       <section class="panel wide" id="curiosity-panel">
-        <h2>Curiosity</h2>
-        <h3>Pending Questions</h3>
-        <div id="question-list">No pending questions.</div>
-        <h3>Research Objectives</h3>
+        <h2>Research Objectives</h2>
+        <p class="hint">Curiosity questions the agent raised are in the Requests tab. These are its self-directed research leads.</p>
         <div id="objective-list"></div>
       </section>
     </div>
@@ -179,8 +202,6 @@
           </form>
         </details>
         <p id="experiment-status"></p>
-        <h3>Pending Promotions</h3>
-        <div id="promotion-list">No pending promotions.</div>
       </section>
     </div>
 
@@ -213,7 +234,7 @@
 
       <section class="panel" id="routing-panel">
         <h2>Model Routing</h2>
-        <p class="hint">Simulation only — no real model is ever called.</p>
+        <p class="hint">Simulation only — this panel never calls a real model. Real calls pick a model automatically (or from the dropdown you choose in Chat / New Task).</p>
         <form id="routing-simulate-form">
           <label>Task type <input type="text" id="routing-task-type" value="coding" required /></label>
           <label>Quality target <input type="number" id="routing-quality-target" value="2" required /></label>
