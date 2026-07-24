@@ -282,13 +282,15 @@ real network call happens anywhere in `pytest`.
 
 ## Internet Access
 
-The first real internet access in this codebase — three new built-in
-`Tool`s (`tools/internet_tools.py`, `tools/web_search_tool.py`):
-`http_fetch` (GET a URL, return its text), `download_file` (save a URL's
-content under `workspace/downloads/`), and `web_search` (Brave Search
-API). `http_fetch` and `download_file` are `LOW`/`MEDIUM` risk and always
-registered — no setup needed. `web_search` needs a key (see Setup below)
-and is simply absent from the tool registry without one.
+The first real internet access in this codebase — built-in `Tool`s
+(`tools/internet_tools.py`, `tools/web_search_tool.py`): `http_fetch`
+(GET a URL, return its text), `extract_text` (fetch a URL — or take raw
+HTML — and return readable plain text with script/style/markup stripped,
+via a dependency-free stdlib `html.parser` extractor), `download_file`
+(save a URL's content under `workspace/downloads/`), and `web_search`
+(Brave Search API). All but `web_search` are `LOW`/`MEDIUM` risk and
+always registered — no setup needed. `web_search` needs a key (see Setup
+below) and is simply absent from the tool registry without one.
 
 **Setup**: only `web_search` needs anything. Add
 `BRAVE_API_KEY=your-key` to `.env` (get a key at
@@ -480,9 +482,12 @@ clean `503` if unconfigured, `502` on a real API request failure.
 - **Orchestrator** (`orchestrator/`): runs a finite, caller-supplied plan
   (list of tool calls) — no autonomous re-planning loop yet, so there's no
   runaway-agent risk at this phase.
-- **Tools** (`tools/`): `read_file`, `write_file`, `shell_exec`, all
-  confined to `workspace/` via `workspace/sandbox.py`. No `shell=True`,
-  command allowlist/denylist, subprocess timeouts.
+- **Tools** (`tools/`): local file/shell tools — `read_file`,
+  `write_file`, `append_file`, `list_directory`, `search_files`,
+  `shell_exec` — all confined to `workspace/` via `workspace/sandbox.py`.
+  No `shell=True`, command allowlist/denylist, subprocess timeouts.
+  (Internet tools — `http_fetch`, `download_file`, `web_search`,
+  `extract_text` — and browser tools come later; see those sections.)
 - **Approval gate** (`orchestrator/approval_gate.py`): blocks execution of
   any `high_irreversible` tool call until a human resolves it via the
   dashboard or it times out.
@@ -714,17 +719,55 @@ clean `503` if unconfigured, `502` on a real API request failure.
 
 ### Dashboard
 - **`api/`, `web/static/`**: FastAPI + plain HTML/JS, no build step,
-  reorganized into tabs (Chat, Run, Tasks, Memory, Improve, Insights) as
-  the panel count grew past what a single scrolling page could hold
-  comfortably. Chat is the landing tab: conversation list, message
-  thread, and the Auto/Semi-Manual/Full-Manual selector. Run holds New
-  Task (with both the `auto_plan` and `execution_mode` controls),
-  Working Summary, Pending Approvals, and Live Activity — the
-  moment-to-moment "what's happening right now" view. Tasks, Memory,
-  Improve (Strategies/Bottlenecks/Experiments/Promotions), and Insights
-  (Analytics/Reviews/Model Routing/Plugins) hold everything else. A
-  project/agent identity label sits in the header; the active tab
+  organized into tabs (Chat, Requests, Run, Tasks, Memory, Improve,
+  Insights). Chat is the landing tab: conversation list, message thread,
+  the Auto/Semi-Manual/Full-Manual selector, a **model dropdown** (Auto
+  or a specific profile), and a collapsible **Agent Thoughts** panel.
+  **Requests** consolidates everything the agent is waiting on a human
+  for — tool approvals, strategy promotions, and curiosity questions —
+  into one place, with a live count **badge** on the tab. Run holds New
+  Task (with `auto_plan`, `execution_mode`, and a model dropdown),
+  Working Summary, and Live Activity. Tasks, Memory (browser + research
+  objectives), Improve (Strategies/Bottlenecks/Experiments), and Insights
+  (Analytics/Reviews/Model Routing/Plugins) hold the rest.
+- **Live status bar** (header): a pulsing dot + "Working 0:42 · N open"
+  or "Idle · up H:MM:SS", polled from `GET /status` every 2s. `/status`
+  merges the in-memory `ActivityTracker` (in-flight work + current-burst
+  duration + uptime) with an authoritative DB count of tasks still
+  `running`/`awaiting_approval`.
+- **Polling is minimal**: the `/ws/live` websocket drives event-based
+  refreshes (tasks/requests/strategies/thoughts on the relevant events);
+  only a 2s `/status` heartbeat and one 30s catch-up sweep remain, rather
+  than the six independent interval loops the dashboard used to run.
+- A project/agent identity label sits in the header; the active tab
   persists in `localStorage`.
+
+### Live status & thoughts (`runtime/`)
+- **`ActivityTracker`** (`runtime/activity.py`): a thread-safe,
+  process-local counter — not persisted, resets on restart (a fresh
+  process is genuinely doing nothing). Task/conversation runs are
+  submitted through `submit_tracked()`, which brackets the whole run in
+  `tracked()` so `/status` reflects real in-flight duration.
+- **`ThoughtLog`** (`runtime/thoughts.py`): an in-memory ring buffer
+  (`collections.deque(maxlen=…)`) capped at N entries × M chars each
+  (`runtime:` config), deliberately ephemeral — it captures the
+  natural-language lines LLM components already produce (a conversation
+  reply, "Planned 3 steps: …", a drafted prompt, the chosen model +
+  reason) so you can watch the agent's reasoning without permanently
+  storing every thought.
+
+### Model selection (`routing/selector.py`)
+- The `ModelRouter` existed since Phase 4 but no real LLM call used it —
+  every consumer took a fixed `settings.llm.default_*_model` string.
+  **`ModelSelector`** wires selection into reality for the two
+  user-facing consumers (conversation, planner): a **manual override**
+  (the dashboard dropdown / a `model` field on the request) always wins;
+  otherwise a **boring, transparent heuristic** escalates the tier by
+  prompt length + a small keyword set ("analyze/research/compare/…"),
+  floored at the consumer's default. The chosen model and a plain-English
+  reason are recorded as a thought. Background/cheap consumers
+  (reflection, curiosity, prompt-drafter) keep their fixed cheap defaults
+  by design.
 
 Persistence, config, and safety-guardrail details are documented inline
 in `src/megachud/config.py`, `src/megachud/db.py`, and
