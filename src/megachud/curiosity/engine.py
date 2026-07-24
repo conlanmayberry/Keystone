@@ -12,7 +12,7 @@ from megachud.models.event import Event
 from megachud.models.memory_entry import MemoryType
 from megachud.models.reflection import Reflection
 from megachud.models.task import Task
-from megachud.routing.engine import ModelProfile, compute_cost_usd
+from megachud.routing.engine import ModelProfile, compute_cost_usd, profile_by_name
 from megachud.runtime.thoughts import ThoughtLog
 
 
@@ -152,7 +152,7 @@ class CuriosityHandler:
             return
         if not self._event_logger or not self._profiles:
             return
-        profile = next((p for p in self._profiles if p.name == text.model), None)
+        profile = profile_by_name(self._profiles, text.model)
         cost_usd = compute_cost_usd(profile, text.tokens_input, text.tokens_output) if profile is not None else None
         self._event_logger.log(
             event_type="llm_call",

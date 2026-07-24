@@ -8,7 +8,7 @@ from megachud.models.evaluation import Evaluation
 from megachud.models.event import Event
 from megachud.models.task import Task
 from megachud.reflection.generator import DeterministicReflectionGenerator, ReflectionDraft, ReflectionGenerator
-from megachud.routing.engine import ModelProfile, compute_cost_usd
+from megachud.routing.engine import ModelProfile, compute_cost_usd, profile_by_name
 from megachud.runtime.thoughts import ThoughtLog
 
 _TOOL_SCHEMA = {
@@ -120,7 +120,7 @@ class LLMReflectionGenerator(ReflectionGenerator):
         return "\n".join(lines)
 
     def _log_cost(self, task_id: str, model: str, tokens_input: int, tokens_output: int) -> None:
-        profile = next((p for p in self._profiles if p.name == model), None)
+        profile = profile_by_name(self._profiles, model)
         cost_usd = compute_cost_usd(profile, tokens_input, tokens_output) if profile is not None else None
         self._event_logger.log(
             event_type="llm_call",

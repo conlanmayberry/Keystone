@@ -43,6 +43,15 @@ class NoQualifyingModelError(ValueError):
     pass
 
 
+def profile_by_name(profiles: list[ModelProfile], name: str | None) -> ModelProfile | None:
+    """Single home for the 'find the ModelProfile matching this model id'
+    lookup that every cost-logging helper needs. Centralizes what were five
+    identical `next((p for p in profiles if p.name == name), None)` scans;
+    profile lists are tiny (a handful of entries), so a linear scan is
+    fine — the point is one implementation, not five copies."""
+    return next((p for p in profiles if p.name == name), None)
+
+
 def compute_cost_usd(profile: ModelProfile, tokens_input: int, tokens_output: int) -> float:
     """Shared cost arithmetic — used here by ConfiguredModelRouter.route()
     and reused (not duplicated) by every real LLM-call consumer

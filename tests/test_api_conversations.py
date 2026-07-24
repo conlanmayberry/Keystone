@@ -53,6 +53,51 @@ def test_conversation_not_found_returns_404(test_settings):
         assert response.status_code == 404
 
 
+def test_list_conversations_count_and_latest_preview(test_settings):
+    from datetime import datetime, timedelta, timezone
+
+    from megachud.api.app import create_app
+    from megachud.models.conversation import ConversationMessage
+
+    app = create_app(test_settings)
+    with TestClient(app) as client:
+        conversation_id = create_conversation(client)
+
+        # Insert messages directly (no LLM engine needed) with distinct,
+        # increasing timestamps so "latest" is unambiguous.
+        base = datetime.now(timezone.utc)
+        session = app.state.session_factory()
+        try:
+            for i, content in enumerate(["first message", "second message", "LATEST message"]):
+                session.add(
+                    ConversationMessage(
+                        conversation_id=conversation_id,
+                        role="user",
+                        content=content,
+                        created_at=base + timedelta(seconds=i),
+                    )
+                )
+            session.commit()
+        finally:
+            session.close()
+
+        summary = next(c for c in client.get("/conversations").json() if c["id"] == conversation_id)
+        assert summary["message_count"] == 3
+        # Field is named last_message_preview — it must be the latest, not the first.
+        assert summary["last_message_preview"] == "LATEST message"
+
+
+def test_list_conversations_handles_conversation_with_no_messages(test_settings):
+    from megachud.api.app import create_app
+
+    app = create_app(test_settings)
+    with TestClient(app) as client:
+        conversation_id = create_conversation(client)
+        summary = next(c for c in client.get("/conversations").json() if c["id"] == conversation_id)
+        assert summary["message_count"] == 0
+        assert summary["last_message_preview"] is None
+
+
 def test_no_conversation_engine_configured_returns_503(test_settings):
     from megachud.api.app import create_app
 

@@ -10,7 +10,7 @@ from megachud.models.evaluation import Evaluation
 from megachud.models.event import Event
 from megachud.models.task import Task
 from megachud.orchestrator.llm_planner import PlanValidationError
-from megachud.routing.engine import compute_cost_usd
+from megachud.routing.engine import compute_cost_usd, profile_by_name
 from megachud.runtime.activity import submit_tracked
 
 router = APIRouter()
@@ -64,8 +64,7 @@ def create_task(payload: TaskCreateRequest, request: Request) -> TaskCreateRespo
         # Logged here, not inside LLMTaskPlanner.plan(), since no Task row
         # (and therefore no task_id) exists until this point.
         model, tokens_input, tokens_output = plan_tokens
-        profiles = request.app.state.model_profiles
-        profile = next((p for p in profiles if p.name == model), None)
+        profile = profile_by_name(request.app.state.model_profiles, model)
         cost_usd = compute_cost_usd(profile, tokens_input, tokens_output) if profile is not None else None
         request.app.state.event_logger.log(
             event_type="llm_call",

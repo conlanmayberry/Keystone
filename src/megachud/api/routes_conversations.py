@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, HTTPException, Request
+from sqlalchemy import func
 
 from megachud.api.schemas import (
     ConversationMessageCreateRequest,
@@ -16,7 +17,7 @@ from megachud.models.conversation import Conversation, ConversationMessage
 from megachud.models.task import Task
 from megachud.orchestrator.plan_validation import PlanValidationError
 from megachud.orchestrator.task_models import ToolCall
-from megachud.routing.engine import compute_cost_usd
+from megachud.routing.engine import compute_cost_usd, profile_by_name
 from megachud.runtime.activity import submit_tracked
 
 router = APIRouter()
@@ -62,8 +63,7 @@ def _launch_task_from_plan(request: Request, *, title: str, prompt: str, plan, e
 
 
 def _log_conversation_llm_cost(request: Request, *, task_id, model, tokens_input, tokens_output, message_id, conversation_id) -> None:
-    profiles = request.app.state.model_profiles
-    profile = next((p for p in profiles if p.name == model), None)
+    profile = profile_by_name(request.app.state.model_profiles, model)
     cost_usd = compute_cost_usd(profile, tokens_input, tokens_output) if profile is not None else None
     request.app.state.event_logger.log(
         event_type="llm_call",
@@ -104,21 +104,55 @@ def list_conversations(request: Request, agent_id: str | None = None) -> list[Co
             query = query.filter_by(agent_id=agent_id)
         conversations = query.order_by(Conversation.created_at.desc()).all()
 
-        summaries = []
-        for c in conversations:
-            messages = (
-                session.query(ConversationMessage)
-                .filter_by(conversation_id=c.id)
-                .order_by(ConversationMessage.created_at.asc())
-                .all()
+        if not conversations:
+            return []
+
+        conversation_ids = [c.id for c in conversations]
+
+        # One GROUP BY instead of a full message load per conversation.
+        counts = dict(
+            session.query(ConversationMessage.conversation_id, func.count())
+            .filter(ConversationMessage.conversation_id.in_(conversation_ids))
+            .group_by(ConversationMessage.conversation_id)
+            .all()
+        )
+
+        # Latest message per conversation for the preview (the field is
+        # named last_message_preview — make it honest; it previously showed
+        # the *first* message). Find each conversation's max(created_at),
+        # then fetch just those rows. Two aggregate queries total,
+        # regardless of conversation count.
+        latest = (
+            session.query(
+                ConversationMessage.conversation_id,
+                func.max(ConversationMessage.created_at).label("last_at"),
             )
-            preview = messages[0].content[:100] if messages else None
-            summaries.append(
-                ConversationSummary(
-                    id=c.id, created_at=c.created_at.isoformat(), message_count=len(messages), last_message_preview=preview
-                )
+            .filter(ConversationMessage.conversation_id.in_(conversation_ids))
+            .group_by(ConversationMessage.conversation_id)
+            .subquery()
+        )
+        preview_rows = (
+            session.query(ConversationMessage.conversation_id, ConversationMessage.content)
+            .join(
+                latest,
+                (ConversationMessage.conversation_id == latest.c.conversation_id)
+                & (ConversationMessage.created_at == latest.c.last_at),
             )
-        return summaries
+            .all()
+        )
+        # If two messages share the exact latest timestamp, last-write-wins
+        # in this dict — an acceptable, rare tie for a preview string.
+        previews = {cid: content for cid, content in preview_rows}
+
+        return [
+            ConversationSummary(
+                id=c.id,
+                created_at=c.created_at.isoformat(),
+                message_count=counts.get(c.id, 0),
+                last_message_preview=(previews[c.id][:100] if c.id in previews else None),
+            )
+            for c in conversations
+        ]
     finally:
         session.close()
 

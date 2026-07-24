@@ -5,14 +5,13 @@ from fastapi import APIRouter, HTTPException, Request
 from megachud.api.schemas import PromptDraftRequest, PromptDraftResponse
 from megachud.conversation.prompt_drafter import PromptDraftResult
 from megachud.llm.client import LLMRequestError
-from megachud.routing.engine import compute_cost_usd
+from megachud.routing.engine import compute_cost_usd, profile_by_name
 
 router = APIRouter()
 
 
 def _log_prompt_drafter_llm_cost(request: Request, result: PromptDraftResult) -> None:
-    profiles = request.app.state.model_profiles
-    profile = next((p for p in profiles if p.name == result.model), None)
+    profile = profile_by_name(request.app.state.model_profiles, result.model)
     cost_usd = compute_cost_usd(profile, result.tokens_input, result.tokens_output) if profile is not None else None
     request.app.state.event_logger.log(
         event_type="llm_call",
