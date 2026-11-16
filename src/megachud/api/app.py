@@ -51,6 +51,9 @@ from megachud.events.dispatcher import EventDispatcher
 from megachud.events.logger import EventLogger
 from megachud.llm.client import AnthropicLLMClient, LLMClient
 from megachud.memory.store import MemoryStore
+from megachud.obsidian.guidance import GuidanceLoader
+from megachud.obsidian.index import VaultIndex
+from megachud.obsidian.research import ResearchSynthesizer
 from megachud.obsidian.vault import VaultWriter
 from megachud.orchestrator.approval_gate import ApprovalGate
 from megachud.orchestrator.engine import Orchestrator
@@ -84,6 +87,7 @@ from megachud.tools.file_tools import (
 from megachud.tools.internet_tools import DownloadFileTool, ExtractTextTool, HttpFetchTool
 from megachud.tools.registry import ToolRegistry
 from megachud.tools.shell_tool import ShellExecTool
+from megachud.tools.vault_tools import WriteResearchNoteTool
 from megachud.tools.web_search_tool import WebSearchTool
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "web" / "static"
@@ -247,6 +251,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # tier for complex/long prompts. Only the two interactive consumers
     # (planner, conversation) use it — background cheap consumers keep their
     # fixed defaults by design.
+    # Built before its three consumers (planner, conversation, research):
+    # read-only, depends on nothing but settings, and reads from a folder
+    # nothing writes to — see the class docstring for why that separation
+    # is load-bearing. Each consumer gets only the notes scoped to it.
+    guidance_loader = GuidanceLoader(
+        settings.vault_root,
+        folder=settings.research.guidance_folder,
+        max_chars=settings.research.guidance_max_chars,
+        max_notes=settings.research.guidance_max_notes,
+    )
+
     planner_selector = ModelSelector(model_profiles, default_model=settings.llm.default_planner_model)
     conversation_selector = ModelSelector(model_profiles, default_model=settings.llm.default_conversation_model)
 
@@ -257,6 +272,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             model=settings.llm.default_planner_model,
             max_tokens=settings.llm.planner_max_tokens,
             selector=planner_selector,
+            guidance_loader=guidance_loader,
         )
         if llm_client is not None
         else None
@@ -269,6 +285,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             model=settings.llm.default_conversation_model,
             max_tokens=settings.llm.conversation_max_tokens,
             selector=conversation_selector,
+            guidance_loader=guidance_loader,
         )
         if llm_client is not None
         else None
@@ -300,7 +317,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         project_name=settings.project_name,
     )
     vault_writer = VaultWriter(settings.vault_root)
-    completion_handler = TaskCompletionHandler(reflection_engine, memory_store, vault_writer)
+
+    # Research notes are the one place MegaChud writes into what may be a
+    # human's real Obsidian vault, so both halves are conditional: no key
+    # means no synthesizer, no tool registration, and no auto-write — the
+    # deterministic memory/task mirroring above is unaffected either way.
+    # The index is read-only and never edits an existing note.
+    vault_index = VaultIndex(
+        settings.vault_root,
+        settings.memory.vector_dim,
+        excerpt_chars=settings.research.excerpt_chars,
+        max_notes=settings.research.max_notes_scanned,
+        exclude_folders=(settings.research.guidance_folder,),
+    )
+    research_synthesizer: ResearchSynthesizer | None = None
+    if llm_client is not None and settings.research.enabled:
+        research_synthesizer = ResearchSynthesizer(
+            llm_client,
+            vault_index,
+            model=settings.research.model,
+            max_tokens=settings.research.max_tokens,
+            link_candidates=settings.research.link_candidates,
+            guidance_loader=guidance_loader,
+            profiles=model_profiles,
+            event_logger=plain_event_logger,
+            thought_log=thought_log,
+        )
+        registry.register(
+            WriteResearchNoteTool(research_synthesizer, vault_writer, folder=settings.research.folder)
+        )
+
+    completion_handler = TaskCompletionHandler(
+        reflection_engine,
+        memory_store,
+        vault_writer,
+        research_synthesizer=research_synthesizer if settings.research.auto_on_task_completion else None,
+        research_folder=settings.research.folder,
+    )
     strategy_metrics_handler = StrategyMetricsHandler(session_factory)
     curiosity_handler = CuriosityHandler(
         session_factory,
@@ -368,6 +421,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.browser_manager = browser_manager
     app.state.memory_store = memory_store
     app.state.vault_writer = vault_writer
+    app.state.vault_index = vault_index
+    app.state.guidance_loader = guidance_loader
+    app.state.research_synthesizer = research_synthesizer
     app.state.model_router = model_router
     app.state.model_profiles = model_profiles
     app.state.plugin_load_results = plugin_load_results

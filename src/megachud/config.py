@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, SecretStr, model_validator
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "default.yaml"
@@ -144,6 +144,58 @@ class LLMConfig(BaseModel):
     timeout_seconds: float = 60.0
 
 
+class ResearchConfig(BaseModel):
+    """Direct-LLM synthesis of research notes into the real Obsidian vault
+    at `vault_root`. Every knob here is off/no-op without an
+    ANTHROPIC_API_KEY — there is no deterministic fallback for this
+    feature on purpose (see obsidian/research.py).
+    """
+
+    enabled: bool = True
+    # Subfolder of vault_root. Kept separate from episodic/semantic/tasks
+    # so research notes are browsable on their own.
+    folder: str = "research"
+    # Fire a note automatically when a completed task's reflection is
+    # judged long-term knowledge. The write_research_note tool works
+    # independently of this.
+    auto_on_task_completion: bool = True
+    model: str = "claude-sonnet-5"
+    max_tokens: int = 4096
+    # How many existing vault notes are offered to the model as link
+    # candidates. Higher = more possible connections, larger prompt.
+    link_candidates: int = 12
+    # Per-note excerpt length in the candidate list, and the ceiling on how
+    # many vault files are indexed at all.
+    excerpt_chars: int = 400
+    max_notes_scanned: int = 2000
+    # Vault folder holding the user's hand-written operating guidance,
+    # loaded into the synthesis system prompt (obsidian/guidance.py).
+    # Excluded from link candidates — guidance describes how to work, it
+    # isn't subject matter to link to.
+    guidance_folder: str = "guidance"
+    # ~3k tokens of prompt on every synthesis call. Sized so a working set
+    # of 6-8 guidance notes fits with headroom — 8000 was too tight and
+    # silently dropped the last two notes, which is the failure mode this
+    # budget most needs to avoid.
+    guidance_max_chars: int = 12000
+    guidance_max_notes: int = 20
+
+    @model_validator(mode="after")
+    def _guidance_folder_is_not_written_to(self) -> "ResearchConfig":
+        """Guidance text is injected into a system prompt, so it is
+        treated as instructions. If the agent could also WRITE there, it
+        could author a note into its own guidance folder and rewrite its
+        own instructions for the next run. Reject that config outright
+        rather than leaving it as a documentation-only convention.
+        """
+        if self.folder.strip("/") == self.guidance_folder.strip("/"):
+            raise ValueError(
+                "research.folder and research.guidance_folder must differ — the agent "
+                "must not be able to write into the folder it reads its instructions from"
+            )
+        return self
+
+
 class RuntimeConfig(BaseModel):
     # The "thoughts" feed is a deliberately ephemeral, in-memory ring
     # buffer — capped so old thoughts fall off and nothing is stored
@@ -179,6 +231,7 @@ class Settings(BaseModel):
     plugins: PluginsConfig = PluginsConfig()
     llm: LLMConfig = LLMConfig()
     internet: InternetConfig = InternetConfig()
+    research: ResearchConfig = ResearchConfig()
     runtime: RuntimeConfig = RuntimeConfig()
 
     @classmethod

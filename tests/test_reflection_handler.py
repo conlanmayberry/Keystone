@@ -4,23 +4,54 @@ import json
 
 from megachud.events.bus import EventBus
 from megachud.events.logger import EventLogger
+from megachud.llm.client import LLMRequestError, LLMResponse
 from megachud.memory.store import MemoryStore
 from megachud.models.evaluation import Evaluation
 from megachud.models.memory_entry import MemoryEntry, MemoryType
 from megachud.models.reflection import Reflection
 from megachud.models.task import Task, TaskStatus
+from megachud.obsidian.index import VaultIndex
+from megachud.obsidian.research import ResearchSynthesizer
 from megachud.obsidian.vault import VaultWriter
 from megachud.reflection.engine import ReflectionEngine
 from megachud.reflection.handler import TaskCompletionHandler
+from tests.fixtures.fake_llm_client import FakeLLMClient
 
 VECTOR_DIM = 64
 
 
-def build_handler(session_factory, tmp_vault) -> TaskCompletionHandler:
+def build_handler(session_factory, tmp_vault, research_synthesizer=None) -> TaskCompletionHandler:
     reflection_engine = ReflectionEngine(session_factory)
     memory_store = MemoryStore(session_factory, vector_dim=VECTOR_DIM)
     vault_writer = VaultWriter(tmp_vault)
-    return TaskCompletionHandler(reflection_engine, memory_store, vault_writer)
+    return TaskCompletionHandler(
+        reflection_engine, memory_store, vault_writer, research_synthesizer=research_synthesizer
+    )
+
+
+def build_synthesizer(tmp_vault, response=None, error=None) -> ResearchSynthesizer:
+    return ResearchSynthesizer(
+        FakeLLMClient(response=response, error=error),
+        VaultIndex(tmp_vault, VECTOR_DIM),
+        model="claude-sonnet-5",
+        max_tokens=1024,
+    )
+
+
+def research_response() -> LLMResponse:
+    return LLMResponse(
+        text="", tokens_input=50, tokens_output=80, model="claude-sonnet-5", stop_reason="tool_use",
+        raw_tool_calls=[{
+            "name": "submit_research_note",
+            "input": {
+                "title": "Approval gating lesson",
+                "summary": "Denied approvals should fail fast.",
+                "body_markdown": "Waiting on a denied approval wastes the whole timeout window.",
+                "tags": ["process"],
+                "open_questions": [],
+            },
+        }],
+    )
 
 
 def create_succeeded_task(session_factory) -> str:
@@ -120,3 +151,66 @@ def test_failed_task_without_evaluation_still_produces_reflection(session_factor
         assert {e.memory_type for e in entries} == {MemoryType.EPISODIC, MemoryType.SEMANTIC}
     finally:
         session.close()
+
+
+def create_long_term_knowledge_task(session_factory) -> str:
+    session = session_factory()
+    try:
+        task = Task(title="denied task", prompt="p", status=TaskStatus.FAILED, result_summary="approval denied")
+        session.add(task)
+        session.commit()
+        return task.id
+    finally:
+        session.close()
+
+
+def test_research_note_written_when_reflection_is_long_term_knowledge(session_factory, tmp_vault):
+    handler = build_handler(session_factory, tmp_vault, build_synthesizer(tmp_vault, response=research_response()))
+    task_id = create_long_term_knowledge_task(session_factory)
+
+    EventLogger(session_factory, EventBus(), on_event=handler).log(event_type="task_failed", task_id=task_id)
+
+    note = tmp_vault / "research" / "Approval gating lesson.md"
+    assert note.exists()
+    text = note.read_text(encoding="utf-8")
+    assert "Waiting on a denied approval" in text
+    # Backlink to the task note that the same handler just wrote.
+    assert f"[[tasks/{task_id}" in text
+
+
+def test_routine_task_writes_no_research_note(session_factory, tmp_vault):
+    handler = build_handler(session_factory, tmp_vault, build_synthesizer(tmp_vault, response=research_response()))
+    # A plain success has become_long_term_knowledge False — no LLM call,
+    # no note, so ordinary tasks don't flood the vault.
+    task_id = create_succeeded_task(session_factory)
+
+    EventLogger(session_factory, EventBus(), on_event=handler).log(event_type="task_completed", task_id=task_id)
+
+    assert not (tmp_vault / "research").exists()
+
+
+def test_synthesis_failure_does_not_break_task_completion(session_factory, tmp_vault):
+    handler = build_handler(
+        session_factory, tmp_vault, build_synthesizer(tmp_vault, error=LLMRequestError("down", retryable=True))
+    )
+    task_id = create_long_term_knowledge_task(session_factory)
+
+    EventLogger(session_factory, EventBus(), on_event=handler).log(event_type="task_failed", task_id=task_id)
+
+    session = session_factory()
+    try:
+        assert session.query(Reflection).filter_by(task_id=task_id).count() == 1
+        assert session.query(MemoryEntry).filter_by(source_task_id=task_id).count() == 2
+    finally:
+        session.close()
+    assert (tmp_vault / "tasks" / f"{task_id}.md").exists()
+    assert not (tmp_vault / "research").exists()
+
+
+def test_no_synthesizer_configured_is_a_no_op(session_factory, tmp_vault):
+    handler = build_handler(session_factory, tmp_vault)
+    task_id = create_long_term_knowledge_task(session_factory)
+
+    EventLogger(session_factory, EventBus(), on_event=handler).log(event_type="task_failed", task_id=task_id)
+
+    assert not (tmp_vault / "research").exists()

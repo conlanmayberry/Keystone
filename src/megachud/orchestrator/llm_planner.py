@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from megachud.llm.client import LLMClient
+from megachud.obsidian.guidance import GuidanceLoader, with_guidance
 from megachud.orchestrator.plan_validation import PlanValidationError, validate_plan_steps
 from megachud.orchestrator.task_models import ToolCall
 from megachud.routing.selector import ModelSelector
@@ -46,12 +47,14 @@ class LLMTaskPlanner:
         model: str,
         max_tokens: int,
         selector: ModelSelector | None = None,
+        guidance_loader: GuidanceLoader | None = None,
     ) -> None:
         self._client = client
         self._tool_registry = tool_registry
         self._model = model
         self._max_tokens = max_tokens
         self._selector = selector
+        self._guidance_loader = guidance_loader
 
     def plan(self, prompt: str, model: str | None = None) -> PlanResult:
         chosen_model, model_reason = self._resolve_model(prompt, model)
@@ -85,9 +88,14 @@ class LLMTaskPlanner:
         # clean error response. Unlike reflection/curiosity, planning has
         # no deterministic fallback to degrade to: a plan that silently
         # became "no plan" would be more confusing than a clean error.
+        # Rebuilt per call, not cached: the point of vault-held guidance is
+        # that editing a note changes the next run with no restart.
+        guidance = self._guidance_loader.load("planner") if self._guidance_loader is not None else ""
+        system = with_guidance(_SYSTEM_PROMPT_TEMPLATE.format(catalog=catalog), guidance)
+
         response = self._client.complete(
             model=chosen_model,
-            system=_SYSTEM_PROMPT_TEMPLATE.format(catalog=catalog),
+            system=system,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=self._max_tokens,
             tool=schema,

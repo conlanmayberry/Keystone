@@ -3,3 +3,13 @@
 # db_path: "./data/megachud.dev.db"
 # shell:
 #   timeout_seconds: 60
+
+# Point MegaChud at a real Obsidian vault. Memory/task mirrors AND
+# LLM-synthesized research notes are written under this root, so research
+# notes can [[wikilink]] into notes you wrote by hand. Forward slashes
+# work fine on Windows.
+# vault_root: "C:/Users/you/Documents/My Vault"
+# research:
+#   folder: "research"            # subfolder the notes land in
+#   auto_on_task_completion: true # also write one when a task yields a lesson
+#   link_candidates: 12           # existing notes offered to the model per note

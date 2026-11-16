@@ -5,8 +5,11 @@ import yaml
 from megachud.config import Settings
 
 
-def test_default_load_reads_repo_default_yaml():
-    settings = Settings.load()
+def test_default_load_reads_repo_default_yaml(tmp_path):
+    # Points local_path at a file that doesn't exist so this asserts what
+    # default.yaml actually ships, not whatever the developer running the
+    # suite happens to have in their gitignored config/local.yaml.
+    settings = Settings.load(local_path=tmp_path / "no-local.yaml")
 
     assert settings.api.port == 8000
     assert settings.approval.timeout_seconds == 3600
@@ -25,6 +28,10 @@ def test_default_load_reads_repo_default_yaml():
     assert settings.internet.browser.headless is True
     assert settings.internet.browser.max_sessions == 4
     assert "buy" in settings.internet.browser.state_changing_button_text
+    assert settings.research.enabled is True
+    assert settings.research.folder == "research"
+    assert settings.research.auto_on_task_completion is True
+    assert settings.research.model == "claude-sonnet-5"
     profile_names = {p.name for p in settings.model_routing.profiles}
     assert profile_names == {"claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-4-8"}
 
