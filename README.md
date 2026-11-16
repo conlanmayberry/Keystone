@@ -1,4 +1,45 @@
-# MegaChud
+# Keystone
+
+**A self-improving AI agent platform.** Keystone plans and carries out multi-step tasks with Claude, remembers what worked, runs experiments on its own strategies, and pauses for human approval before doing anything it can't undo.
+
+> Formerly MegaChud. The Python package is still named `megachud` internally. Python 3.12 with FastAPI and SQLAlchemy. It has 118 source files, 86 test files and a full specification, roadmap and engineering standards doc.
+
+## Highlights
+
+- **An agent orchestrator with a human approval gate.** Every tool declares a risk level (low, medium or high-and-irreversible). Anything irreversible, like submitting a form in a browser, always pauses for a person to approve. This gate was built and tested on day one, so internet and browser tools could be added later without reworking the core.
+- **Planning with an LLM.** Anthropic Claude breaks requests into steps, picks tools and writes reflections on how each task went. A rules-based model-selection engine decides which model to use based on cost and quality, without calling an AI to make that choice.
+- **Long-term memory.** Past tasks, reflections and research are stored in SQL. Search is TF-IDF vector search built on scikit-learn. It also integrates with an **Obsidian vault**: Keystone writes research notes there and reads its own guidance prompts from it, so you can tune its behavior by editing a note.
+- **Self-improvement loop.** It tracks strategies and workflows, runs A/B-style experiments, generates its own curiosity questions, detects bottlenecks, and writes hourly and weekly performance reviews.
+- **Internet and browser tools.** HTTP fetch, file download and web search, plus Playwright browser automation for research, monitoring and testing.
+- **Chat interface and live dashboard.** Auto, Semi-Manual and Full-Manual modes, a requests queue, live status and "thoughts" streamed over WebSockets, analytics panels and model selection.
+- **A plugin platform.** Tools load dynamically from `plugins/`, and the structure is ready for multiple agents and multiple projects.
+
+## Tech stack
+
+| Area | Tools |
+|---|---|
+| Core | Python 3.12, FastAPI, Uvicorn, WebSockets, Pydantic, SQLAlchemy, PyYAML |
+| AI / ML | Anthropic Claude API, scikit-learn, NumPy |
+| Automation | Playwright, httpx |
+| Knowledge | Obsidian vault (Markdown) |
+| Testing | pytest, pytest-asyncio |
+
+## Architecture at a glance
+
+```
+Chat / dashboard ─▶ orchestrator ─▶ LLM planner (Claude) ─▶ tools (file, shell, web, browser, vault, plugins)
+                         │                                      │
+                   approval gate ◀──────── high-risk tool call ─┘
+                         │
+     memory (SQL + TF-IDF search + Obsidian) ◀─▶ reflection · experiments · curiosity · reviews · model routing
+```
+
+Built in five phases: a reliable core, then memory, then self-improvement, then optimization, then a plugin platform. See [Master_Specification.md](Master_Specification.md), [Implementation_Plan.md](Implementation_Plan.md) and [Engineering_Standards.md](Engineering_Standards.md).
+
+---
+
+## Full technical documentation
+
 
 Self-improving autonomous AI operating system. This repo implements all
 **5 phases** of the roadmap: **Phase 1** (reliable core), **Phase 2**
@@ -280,6 +321,105 @@ unconfigured (fallback) and configured (real API) paths. Every test in
 the suite uses `tests/fixtures/fake_llm_client.py`'s `FakeLLMClient` — no
 real network call happens anywhere in `pytest`.
 
+## Research Notes in Your Obsidian Vault
+
+MegaChud can write its research **directly into a real Obsidian vault**,
+as notes that `[[wikilink]]` into the notes already there — so findings
+join your existing graph instead of sitting in a separate silo.
+
+**Point it at your vault** in `config/local.yaml` (gitignored):
+
+```yaml
+vault_root: "C:/Users/you/Documents/My Vault"
+```
+
+That one setting moves everything: the `episodic/`, `semantic/`,
+`user/`, and `tasks/` mirrors *and* the new `research/` folder all land
+under your vault, so a research note can link to a hand-written note and
+to MegaChud's own memory in the same graph.
+
+**Two ways a note gets written:**
+
+1. **The `write_research_note` tool.** The agent calls it mid-task with
+   `topic`, `findings`, and optional `sources` — typically after
+   `web_search`/`http_fetch`/`extract_text`. `MEDIUM` risk, matching
+   `write_file`.
+2. **Automatically on task completion**, gated on
+   `reflection.become_long_term_knowledge` — the same signal that already
+   decides whether a semantic memory is worth creating. Without that gate
+   every routine task would cost an LLM call and drop another note in
+   your vault. Turn it off with `research: auto_on_task_completion: false`.
+
+**Direct LLM synthesis, not a template.** `obsidian/research.py` makes
+one forced-tool-use call and the model writes the note body itself — the
+prose in the file is the model's, not a slot-filled template. The only
+post-processing is link validation.
+
+**How links stay real.** `obsidian/index.py` scans the vault (read-only,
+per-file mtime cache, `.obsidian/`/`.trash/` skipped) and shortlists the
+notes most related to the topic using the same local `HashingVectorizer`
+that backs memory retrieval — no extra embedding call. Only those notes
+are offered to the model, and only by title. Afterwards every `[[…]]` in
+the body is resolved back to a real filename (`[[084a4be0…|Lesson:
+retries]]`, since MegaChud's own memory notes are named by UUID), and
+any wikilink naming a note that isn't on the candidate list is **demoted
+to plain text**. That demotion matters: an unresolvable wikilink in
+Obsidian silently becomes an offer to create a new empty note, so a
+hallucinated link would quietly pollute your vault rather than fail.
+Zero links is a valid outcome when nothing in the vault relates.
+
+**What it never does.** Links are outbound-only — MegaChud never edits or
+deletes a note it didn't write. Title collisions get a numeric suffix
+(`My Note 2.md`) rather than overwriting. And unlike every other LLM
+swap-point here, there is **no deterministic fallback**: a failed
+synthesis writes nothing and logs a warning, because a template-generated
+stub in a personal vault is worse than no note at all. Task completion is
+never broken by a research-note failure.
+
+Needs `ANTHROPIC_API_KEY`. Without one, the tool isn't registered and the
+auto-hook never runs — the deterministic memory/task mirroring is
+unaffected. Knobs (`folder`, `model`, `link_candidates`, `excerpt_chars`,
+`max_notes_scanned`) live under `research:` in `config/default.yaml`.
+
+### Guidance notes: the prompt lives in the vault
+
+How the agent works isn't a Python string literal — it's a folder of Markdown
+notes in your vault (`guidance/` by default). `obsidian/guidance.py` loads them
+into the system prompt on **every call**, so editing a note in Obsidian changes
+behavior on the next run with no restart and no code change.
+
+**Three consumers read it**: research synthesis, the task planner
+(`orchestrator/llm_planner.py`), and the conversation engine
+(`conversation/engine.py`). An `applies_to: [research, planner, conversation]`
+frontmatter list scopes each note; a note without one applies everywhere.
+Scoping is what keeps research-output rules (how to title a note, when to link)
+out of the planner's context budget, where they'd cost tokens and say nothing
+useful.
+
+**Ordering is load-bearing.** Notes sort by an optional `order:` frontmatter
+integer, then filename, and the char budget (`guidance_max_chars`, ~3k tokens)
+drops notes **whole from the end** rather than truncating mid-sentence — half a
+rule read as a whole rule is worse than the rule being absent. Without
+`order:`, a budget squeeze would drop whichever note sorts last alphabetically
+instead of whichever matters least. Notes with no `order:` sort after ones that
+have it, so adding a note never displaces one you deliberately prioritized.
+
+**The read/write separation is a security boundary, not a convention.**
+Guidance text is injected into a system prompt, so it's treated as
+instructions. If the agent could also *write* to that folder, it could author a
+research note into its own guidance folder and rewrite its own instructions for
+the next run. `ResearchConfig` rejects any config where `folder` and
+`guidance_folder` are the same, and the guidance folder is excluded from link
+candidates (guidance describes how to work; it isn't subject matter). Each
+consumer's own hardcoded rules — never invent facts, never link to a note
+that isn't on the candidate list, plans are one-shot — sit *above* the user
+guidance in the prompt and are declared non-overridable by it
+(`guidance.with_guidance`), so a careless edit to a note can't turn off a
+correctness protection.
+
+Promotion of a lesson from `research/` into `guidance/` is deliberately
+manual — that's the human checkpoint in the self-improvement loop.
+
 ## Internet Access
 
 The first real internet access in this codebase — built-in `Tool`s
@@ -521,7 +661,9 @@ clean `503` if unconfigured, `502` on a real API request failure.
 - **Obsidian** (`obsidian/`): mirrors every memory entry and completed task
   as Markdown with YAML frontmatter under `vault/`, with `[[wikilinks]]`
   between a task and its memory. `reindex_vault()` re-reads the vault back
-  into the DB — human edits win.
+  into the DB — human edits win. `index.py` (read-only vault scan +
+  link resolution) and `research.py` (direct LLM synthesis) extend this to
+  a real personal vault — see **Research Notes in Your Obsidian Vault**.
 
 ### Phase 3 — improvement
 - **Strategy** (`strategy/`): a "workflow" is not a separate table — it's
